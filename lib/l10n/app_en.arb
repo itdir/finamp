@@ -583,5 +583,27 @@
   "sync": "Synchronize with Server",
   "@sync": {},
   "about": "About Finamp",
-  "@about": {}
+  "@about": {},
+  "externalSearch": "External Search",
+  "@externalSearch": {
+    "description": "Title and tooltip for the external song/artist/album search screen"
+  },
+  "song": "Song",
+  "@song": {
+    "description": "Label for the song name field on the external search screen"
+  },
+  "searchButtonLabel": "Search",
+  "@searchButtonLabel": {
+    "description": "Label for the search submit button on the external search screen"
+  },
+  "externalSearchSubmitted": "Search criteria: {criteria}",
+  "@externalSearchSubmitted": {
+    "description": "Snackbar shown after submitting an external search (stub until API is wired)",
+    "placeholders": {
+      "criteria": {
+        "type": "String",
+        "example": "Song: Hello, Artist: Adele"
+      }
+    }
+  }
 }

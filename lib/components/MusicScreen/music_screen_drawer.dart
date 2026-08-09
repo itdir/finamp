@@ -5,8 +5,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/finamp_user_helper.dart';
 import '../../screens/downloads_screen.dart';
+import '../../screens/external_search_screen.dart';
 import '../../screens/logs_screen.dart';
 import '../../screens/settings_screen.dart';
+import '../external_search_button.dart';
 import 'offline_mode_switch_list_tile.dart';
 import 'view_list_tile.dart';
 
@@ -50,6 +52,12 @@ class MusicScreenDrawer extends StatelessWidget {
                     title: Text(AppLocalizations.of(context)!.downloads),
                     onTap: () => Navigator.of(context)
                         .pushNamed(DownloadsScreen.routeName),
+                  ),
+                  ListTile(
+                    leading: const ExternalSearchLeadingIcon(),
+                    title: Text(AppLocalizations.of(context)!.externalSearch),
+                    onTap: () => Navigator.of(context)
+                        .pushNamed(ExternalSearchScreen.routeName),
                   ),
                   const OfflineModeSwitchListTile(),
                   const Divider(),
