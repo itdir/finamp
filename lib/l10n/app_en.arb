@@ -626,15 +626,23 @@
   "@musicFinderServerSheetTitle": {
     "description": "Title for the Music Finder server setup bottom sheet"
   },
-  "musicFinderServerSheetSubtitle": "Enter the URL of your Music Finder service, then connect.",
+  "musicFinderServerSheetSubtitle": "Enter your Music Finder URL, then connect. After a successful check it is stored privately and never shown again.",
   "@musicFinderServerSheetSubtitle": {
-    "description": "Subtitle explaining the server setup sheet"
+    "description": "Subtitle explaining the server setup sheet; URL is treated as a secret after connect"
   },
   "musicFinderChangeServer": "Change server",
   "@musicFinderChangeServer": {
     "description": "AppBar tooltip to reopen Music Finder server setup"
   },
-  "musicFinderServerConfigured": "Configured",
+  "musicFinderShowUrl": "Show URL",
+  "@musicFinderShowUrl": {
+    "description": "Tooltip to reveal the Music Finder URL field while typing"
+  },
+  "musicFinderHideUrl": "Hide URL",
+  "@musicFinderHideUrl": {
+    "description": "Tooltip to obscure the Music Finder URL field while typing"
+  },
+  "musicFinderServerConfigured": "Configured (URL hidden)",
   "@musicFinderServerConfigured": {
     "description": "Settings subtitle when a Music Finder URL is saved (does not show the URL)"
   },

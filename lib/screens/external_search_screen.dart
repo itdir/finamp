@@ -119,10 +119,22 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   Future<void> _leaveBecauseServerUnavailable() async {
+    // Clear the secret before any URL entry UI can appear.
+    setState(() {
+      _serverUrl = null;
+      _isConnected = false;
+      _isConnecting = false;
+      _result = null;
+      _addResult = null;
+      _selectedItemIds.clear();
+      _selectedArtistId = null;
+    });
     FinampSettingsHelper.setMusicFinderServerUrl(null);
+
     if (!mounted) {
       return;
     }
+
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger?.showSnackBar(
       SnackBar(
@@ -131,6 +143,27 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         ),
       ),
     );
+
+    final connectedUrl = await MusicFinderServerSheet.show(
+      context,
+      client: _musicFinderClient,
+      isDismissible: true,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    if (connectedUrl != null && connectedUrl.isNotEmpty) {
+      FinampSettingsHelper.setMusicFinderServerUrl(connectedUrl);
+      setState(() {
+        _serverUrl = connectedUrl;
+        _isConnected = true;
+        _isConnecting = false;
+        _searchError = null;
+      });
+      return;
+    }
+
     Navigator.of(context).pop();
   }
 
@@ -139,12 +172,11 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       return;
     }
 
+    // Field is always empty — never pass the stored URL into the sheet.
     _serverSheetOpen = true;
     final connectedUrl = await MusicFinderServerSheet.show(
       context,
       client: _musicFinderClient,
-      initialUrl: _serverUrl ??
-          FinampSettingsHelper.finampSettings.musicFinderServerUrl,
       isDismissible: true,
     );
     _serverSheetOpen = false;

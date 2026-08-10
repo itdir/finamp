@@ -9,6 +9,9 @@ import 'music_finder_server_sheet.dart';
 
 /// Settings row to configure Music Finder. External Search UI stays hidden
 /// until a URL is saved after a successful health check.
+///
+/// The stored URL is never shown — only Configured / Not configured.
+/// The entry field is always empty (secret is never prefilled).
 class MusicFinderServerSettingsTile extends StatelessWidget {
   const MusicFinderServerSettingsTile({Key? key}) : super(key: key);
 
@@ -17,7 +20,6 @@ class MusicFinderServerSettingsTile extends StatelessWidget {
     final connectedUrl = await MusicFinderServerSheet.show(
       context,
       client: client,
-      initialUrl: FinampSettingsHelper.finampSettings.musicFinderServerUrl,
       isDismissible: true,
     );
     if (!context.mounted) {

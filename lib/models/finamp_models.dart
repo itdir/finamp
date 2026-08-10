@@ -191,6 +191,7 @@ class FinampSettings {
   bool swipeInsertQueueNext;
 
   /// Base URL for the external Music Finder service (non-Jellyfin).
+  /// Treated as a secret: never display in UI after a successful health check.
   @HiveField(27)
   String? musicFinderServerUrl;
 

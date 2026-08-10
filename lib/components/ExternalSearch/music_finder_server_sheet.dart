@@ -5,26 +5,19 @@ import '../../services/music_finder_client.dart';
 
 /// Modal sheet to enter and health-check a Music Finder base URL.
 ///
-/// Pops with the connected URL on success, or `null` if dismissed.
+/// The field is always empty when opened — a stored URL is never shown
+/// (treated like a secret). Pops with the URL on success, or `null` if dismissed.
 class MusicFinderServerSheet extends StatefulWidget {
   const MusicFinderServerSheet({
     Key? key,
     required this.client,
-    this.initialUrl,
-    this.autoConnect = false,
   }) : super(key: key);
 
   final MusicFinderClient client;
-  final String? initialUrl;
-
-  /// When true and [initialUrl] is non-empty, run Connect once the sheet opens.
-  final bool autoConnect;
 
   static Future<String?> show(
     BuildContext context, {
     required MusicFinderClient client,
-    String? initialUrl,
-    bool autoConnect = false,
     bool isDismissible = true,
   }) {
     return showModalBottomSheet<String>(
@@ -41,11 +34,7 @@ class MusicFinderServerSheet extends StatefulWidget {
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-          child: MusicFinderServerSheet(
-            client: client,
-            initialUrl: initialUrl,
-            autoConnect: autoConnect,
-          ),
+          child: MusicFinderServerSheet(client: client),
         );
       },
     );
@@ -56,22 +45,10 @@ class MusicFinderServerSheet extends StatefulWidget {
 }
 
 class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
-  late final TextEditingController _urlController;
+  final _urlController = TextEditingController();
   bool _isConnecting = false;
+  bool _obscureUrl = true;
   String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _urlController = TextEditingController(text: widget.initialUrl ?? "");
-    if (widget.autoConnect && (_urlController.text.trim().isNotEmpty)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _connect();
-        }
-      });
-    }
-  }
 
   @override
   void dispose() {
@@ -117,6 +94,8 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
     }
 
     if (ok) {
+      // Drop the typed secret from the field before the sheet closes.
+      _urlController.clear();
       Navigator.of(context, rootNavigator: true).pop(url);
       return;
     }
@@ -165,8 +144,10 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
             TextField(
               controller: _urlController,
               enabled: !_isConnecting,
+              obscureText: _obscureUrl,
               keyboardType: TextInputType.url,
               autocorrect: false,
+              enableSuggestions: false,
               textInputAction: TextInputAction.done,
               onEditingComplete: _connect,
               decoration: InputDecoration(
@@ -174,6 +155,17 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
                 hintText: "http://127.0.0.1:8088",
                 border: const OutlineInputBorder(),
                 errorText: _error,
+                suffixIcon: IconButton(
+                  tooltip: _obscureUrl
+                      ? localizations.musicFinderShowUrl
+                      : localizations.musicFinderHideUrl,
+                  onPressed: _isConnecting
+                      ? null
+                      : () => setState(() => _obscureUrl = !_obscureUrl),
+                  icon: Icon(
+                    _obscureUrl ? Icons.visibility : Icons.visibility_off,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -183,7 +175,10 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
                 TextButton(
                   onPressed: _isConnecting
                       ? null
-                      : () => Navigator.of(context, rootNavigator: true).pop(),
+                      : () {
+                          _urlController.clear();
+                          Navigator.of(context, rootNavigator: true).pop();
+                        },
                   child: Text(
                     MaterialLocalizations.of(context).cancelButtonLabel,
                   ),
