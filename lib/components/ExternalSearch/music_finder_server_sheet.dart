@@ -29,6 +29,7 @@ class MusicFinderServerSheet extends StatefulWidget {
   }) {
     return showModalBottomSheet<String>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       isDismissible: isDismissible,
       enableDrag: isDismissible,
@@ -116,7 +117,7 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
     }
 
     if (ok) {
-      Navigator.of(context).pop(url);
+      Navigator.of(context, rootNavigator: true).pop(url);
       return;
     }
 
@@ -182,7 +183,7 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
                 TextButton(
                   onPressed: _isConnecting
                       ? null
-                      : () => Navigator.of(context).pop(),
+                      : () => Navigator.of(context, rootNavigator: true).pop(),
                   child: Text(
                     MaterialLocalizations.of(context).cancelButtonLabel,
                   ),
@@ -190,11 +191,13 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
                 const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: _isConnecting ? null : _connect,
-                  child: Text(
-                    _isConnecting
-                        ? localizations.connectingButtonLabel
-                        : localizations.connectButtonLabel,
-                  ),
+                  child: _isConnecting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(localizations.connectButtonLabel),
                 ),
               ],
             ),

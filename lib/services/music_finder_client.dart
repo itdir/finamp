@@ -18,15 +18,8 @@ class MusicFinderClient {
     try {
       final response = await _getJson(baseUrl, "/api/health");
       return response.statusCode == 200;
-    } on MusicFinderException {
-      return false;
-    } on TimeoutException {
-      return false;
-    } on SocketException {
-      return false;
-    } on HandshakeException {
-      return false;
-    } on HttpException {
+    } catch (_) {
+      // Timeouts, DNS, TLS, socket, format — treat as unreachable.
       return false;
     }
   }
