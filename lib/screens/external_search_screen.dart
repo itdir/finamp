@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../components/now_playing_bar.dart';
-import '../models/external_search_query.dart';
+import '../models/music_finder_models.dart';
 import '../services/finamp_settings_helper.dart';
 import '../services/music_finder_client.dart';
 
-/// Form for searching a song, artist, and/or album on an external catalog.
+/// External Music Finder search — mirrors downloads.local music-search UI.
 ///
-/// Requires a reachable Music Finder server URL (HTTP 200) before the search
-/// fields are shown. A future API client will consume [ExternalSearchQuery].
+/// Requires a reachable Music Finder server (`GET /api/health` → 200) before
+/// search fields are shown.
 class ExternalSearchScreen extends StatefulWidget {
   const ExternalSearchScreen({Key? key}) : super(key: key);
 
@@ -28,14 +28,29 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
 
   bool _isConnecting = false;
   bool _isConnected = false;
+  bool _isSearching = false;
+  bool _isAdding = false;
   String? _serverUrlError;
+  String? _searchError;
+  String? _selectedArtistId;
+
+  MusicFinderSearchResult? _result;
+  MusicFinderAddResult? _addResult;
+  final Set<String> _selectedMagnets = {};
+
+  String get _baseUrl => _serverUrlController.text.trim();
 
   bool get _canSearch {
     return _isConnected &&
+        !_isSearching &&
+        !_isConnecting &&
         (_songController.text.trim().isNotEmpty ||
             _artistController.text.trim().isNotEmpty ||
             _albumController.text.trim().isNotEmpty);
   }
+
+  bool get _canAdd =>
+      _isConnected && !_isAdding && _selectedMagnets.isNotEmpty;
 
   @override
   void initState() {
@@ -48,7 +63,6 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     final savedUrl = FinampSettingsHelper.finampSettings.musicFinderServerUrl;
     if (savedUrl != null && savedUrl.isNotEmpty) {
       _serverUrlController.text = savedUrl;
-      // Auto-check persisted URL on every open.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _connect();
@@ -62,10 +76,15 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   void _onServerUrlEdited() {
-    if (_isConnected) {
+    if (_isConnected || _result != null) {
       setState(() {
         _isConnected = false;
         _serverUrlError = null;
+        _result = null;
+        _addResult = null;
+        _selectedMagnets.clear();
+        _selectedArtistId = null;
+        _searchError = null;
       });
     }
   }
@@ -112,11 +131,14 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       return;
     }
 
-    final url = _serverUrlController.text.trim();
+    final url = _baseUrl;
     setState(() {
       _isConnecting = true;
       _serverUrlError = null;
       _isConnected = false;
+      _result = null;
+      _addResult = null;
+      _selectedMagnets.clear();
     });
 
     final ok = await _musicFinderClient.checkConnection(url);
@@ -139,46 +161,123 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     }
   }
 
-  ExternalSearchQuery _buildQuery() {
-    String? trimOrNull(String value) {
-      final trimmed = value.trim();
-      return trimmed.isEmpty ? null : trimmed;
+  Future<void> _runSearch({String? artistId}) async {
+    if (_isSearching || !_isConnected) {
+      return;
+    }
+    if (_songController.text.trim().isEmpty &&
+        _artistController.text.trim().isEmpty &&
+        _albumController.text.trim().isEmpty) {
+      return;
     }
 
-    return ExternalSearchQuery(
-      song: trimOrNull(_songController.text),
-      artist: trimOrNull(_artistController.text),
-      album: trimOrNull(_albumController.text),
-    );
+    setState(() {
+      _isSearching = true;
+      _searchError = null;
+      _addResult = null;
+      _selectedMagnets.clear();
+      if (artistId != null) {
+        _selectedArtistId = artistId;
+      }
+    });
+
+    try {
+      final result = await _musicFinderClient.search(
+        baseUrl: _baseUrl,
+        song: _songController.text.trim(),
+        artist: _artistController.text.trim(),
+        album: _albumController.text.trim(),
+        artistId: artistId ?? _selectedArtistId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSearching = false;
+        _result = result;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSearching = false;
+        _result = null;
+        _searchError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _addSelected() async {
+    if (!_canAdd) {
+      return;
+    }
+
+    setState(() {
+      _isAdding = true;
+      _addResult = null;
+    });
+
+    try {
+      final addResult = await _musicFinderClient.addMagnets(
+        baseUrl: _baseUrl,
+        magnets: _selectedMagnets.toList(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isAdding = false;
+        _addResult = addResult;
+      });
+      final messenger = ScaffoldMessenger.of(context);
+      final okCount = addResult.results.where((r) => r.ok).length;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!
+                .musicFinderAddSummary(okCount, addResult.results.length),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isAdding = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
   }
 
   void _onCancel() {
     Navigator.of(context).pop();
   }
 
-  void _onSearch() {
-    if (!_canSearch) {
-      return;
-    }
-
-    final localizations = AppLocalizations.of(context)!;
-    final query = _buildQuery();
-    final criteria = query.toCriteriaSummary(
-      songLabel: localizations.song,
-      artistLabel: localizations.artist,
-      albumLabel: localizations.album,
-    );
-    final messenger = ScaffoldMessenger.of(context);
-    final message = localizations.externalSearchSubmitted(criteria);
-
-    Navigator.of(context).pop();
-    messenger.showSnackBar(SnackBar(content: Text(message)));
+  void _toggleSelectAll(bool? select) {
+    final candidates = _result?.candidates ?? const [];
+    setState(() {
+      if (select == true) {
+        _selectedMagnets
+          ..clear()
+          ..addAll(candidates.map((c) => c.magnet));
+      } else {
+        _selectedMagnets.clear();
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
     final node = FocusScope.of(context);
+    final candidates = _result?.candidates ?? const [];
+    final allSelected = candidates.isNotEmpty &&
+        candidates.every((c) => _selectedMagnets.contains(c.magnet));
+    final someSelected = _selectedMagnets.isNotEmpty && !allSelected;
 
     return Scaffold(
       appBar: AppBar(
@@ -186,90 +285,346 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       ),
       bottomNavigationBar: const NowPlayingBar(),
       body: SafeArea(
-        child: Padding(
+        child: ListView(
           padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+          children: [
+            TextField(
+              controller: _serverUrlController,
+              enabled: !_isConnecting && !_isSearching && !_isAdding,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              textInputAction: TextInputAction.done,
+              onEditingComplete: _connect,
+              decoration: InputDecoration(
+                labelText: localizations.musicFinderServerUrl,
+                hintText: "http://downloads.local:8088",
+                border: const OutlineInputBorder(),
+                errorText: _serverUrlError,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton(
+                onPressed: (_isConnecting || _isSearching || _isAdding)
+                    ? null
+                    : _connect,
+                child: Text(
+                  _isConnecting
+                      ? localizations.connectingButtonLabel
+                      : localizations.connectButtonLabel,
+                ),
+              ),
+            ),
+            if (_isConnected) ...[
+              const SizedBox(height: 24),
               TextField(
-                controller: _serverUrlController,
-                enabled: !_isConnecting,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                textInputAction: TextInputAction.done,
-                onEditingComplete: () => _connect(),
+                controller: _songController,
+                enabled: !_isSearching && !_isAdding,
+                textInputAction: TextInputAction.next,
+                onEditingComplete: () => node.nextFocus(),
                 decoration: InputDecoration(
-                  labelText: localizations.musicFinderServerUrl,
-                  hintText: "http://0.0.0.0:8080",
+                  labelText: localizations.song,
                   border: const OutlineInputBorder(),
-                  errorText: _serverUrlError,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _artistController,
+                enabled: !_isSearching && !_isAdding,
+                textInputAction: TextInputAction.next,
+                onEditingComplete: () => node.nextFocus(),
+                decoration: InputDecoration(
+                  labelText: localizations.artist,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _albumController,
+                enabled: !_isSearching && !_isAdding,
+                textInputAction: TextInputAction.done,
+                onEditingComplete: _canSearch ? () => _runSearch() : null,
+                decoration: InputDecoration(
+                  labelText: localizations.album,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed:
+                        (_isSearching || _isAdding) ? null : _onCancel,
+                    child: Text(
+                      MaterialLocalizations.of(context).cancelButtonLabel,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _canSearch ? () => _runSearch() : null,
+                    child: Text(
+                      _isSearching
+                          ? localizations.searchingButtonLabel
+                          : localizations.searchButtonLabel,
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              const SizedBox(height: 24),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _isConnecting ? null : _onCancel,
+                  child: Text(
+                    MaterialLocalizations.of(context).cancelButtonLabel,
+                  ),
+                ),
+              ),
+            ],
+            if (_searchError != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                _searchError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            if (_result != null) ...[
+              const SizedBox(height: 24),
+              _IdentitySection(
+                result: _result!,
+                selectedArtistId: _selectedArtistId,
+                onArtistSelected: (id) {
+                  setState(() => _selectedArtistId = id);
+                },
+                onContinueWithArtist: _isSearching
+                    ? null
+                    : () {
+                        if (_selectedArtistId != null) {
+                          _runSearch(artistId: _selectedArtistId);
+                        }
+                      },
+              ),
+            ],
+            if (_result != null && candidates.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                localizations.musicFinderMagnetCandidates,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columns: [
+                    DataColumn(
+                      label: Checkbox(
+                        tristate: true,
+                        value: allSelected
+                            ? true
+                            : (someSelected ? null : false),
+                        onChanged: _isAdding ? null : _toggleSelectAll,
+                      ),
+                    ),
+                    DataColumn(label: Text(localizations.musicFinderScore)),
+                    DataColumn(label: Text(localizations.musicFinderTitle)),
+                    DataColumn(label: Text(localizations.musicFinderHost)),
+                  ],
+                  rows: [
+                    for (final c in candidates)
+                      DataRow(
+                        cells: [
+                          DataCell(
+                            Checkbox(
+                              value: _selectedMagnets.contains(c.magnet),
+                              onChanged: _isAdding
+                                  ? null
+                                  : (checked) {
+                                      setState(() {
+                                        if (checked == true) {
+                                          _selectedMagnets.add(c.magnet);
+                                        } else {
+                                          _selectedMagnets.remove(c.magnet);
+                                        }
+                                      });
+                                    },
+                            ),
+                          ),
+                          DataCell(Text(c.score.toStringAsFixed(2))),
+                          DataCell(
+                            SizedBox(
+                              width: 220,
+                              child: Text(
+                                c.title,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          DataCell(Text(c.host)),
+                        ],
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.centerRight,
                 child: ElevatedButton(
-                  onPressed: _isConnecting ? null : _connect,
+                  onPressed: _canAdd ? _addSelected : null,
                   child: Text(
-                    _isConnecting
-                        ? localizations.connectingButtonLabel
-                        : localizations.connectButtonLabel,
+                    _isAdding
+                        ? localizations.musicFinderAddingLabel
+                        : localizations.musicFinderAddSelected,
                   ),
                 ),
               ),
-              if (_isConnected) ...[
-                const SizedBox(height: 24),
-                TextField(
-                  controller: _songController,
-                  textInputAction: TextInputAction.next,
-                  onEditingComplete: () => node.nextFocus(),
-                  decoration: InputDecoration(
-                    labelText: localizations.song,
-                    border: const OutlineInputBorder(),
+            ] else if (_result != null &&
+                !_result!.alreadyOwned &&
+                !_result!.needsArtistChoice) ...[
+              const SizedBox(height: 16),
+              Text(localizations.musicFinderNoCandidates),
+              if (_result!.scrapeReports.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                for (final r in _result!.scrapeReports)
+                  Text(
+                    r.ok
+                        ? "${r.host}: ok (${r.count})"
+                        : "${r.host}: fail ${r.error}",
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _artistController,
-                  textInputAction: TextInputAction.next,
-                  onEditingComplete: () => node.nextFocus(),
-                  decoration: InputDecoration(
-                    labelText: localizations.artist,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _albumController,
-                  textInputAction: TextInputAction.done,
-                  onEditingComplete: _canSearch ? _onSearch : null,
-                  decoration: InputDecoration(
-                    labelText: localizations.album,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
               ],
-              const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: _isConnecting ? null : _onCancel,
-                    child: Text(
-                      MaterialLocalizations.of(context).cancelButtonLabel,
-                    ),
+            ],
+            if (_addResult != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                localizations.musicFinderAddResults,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              for (final r in _addResult!.results)
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    r.ok ? Icons.check_circle : Icons.error,
+                    color: r.ok
+                        ? Colors.green
+                        : Theme.of(context).colorScheme.error,
                   ),
-                  if (_isConnected) ...[
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _canSearch ? _onSearch : null,
-                      child: Text(localizations.searchButtonLabel),
-                    ),
-                  ],
-                ],
+                  title: Text(r.detail.isEmpty ? (r.ok ? "ok" : "error") : r.detail),
+                  subtitle: Text(
+                    r.magnet.length > 72
+                        ? "${r.magnet.substring(0, 72)}…"
+                        : r.magnet,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IdentitySection extends StatelessWidget {
+  const _IdentitySection({
+    required this.result,
+    required this.selectedArtistId,
+    required this.onArtistSelected,
+    required this.onContinueWithArtist,
+  });
+
+  final MusicFinderSearchResult result;
+  final String? selectedArtistId;
+  final ValueChanged<String> onArtistSelected;
+  final VoidCallback? onContinueWithArtist;
+
+  @override
+  Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context)!;
+    final identity = result.identity;
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "${localizations.musicFinderIdentity} (${result.status})",
+              style: theme.textTheme.titleMedium,
+            ),
+            if (result.warnings.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                "${localizations.musicFinderWarnings}: ${result.warnings.join(', ')}",
+                style: TextStyle(color: theme.colorScheme.error),
               ),
             ],
-          ),
+            if (result.alreadyOwned && identity?.owned != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                localizations.musicFinderAlreadyOwned(
+                  identity!.owned!.artist,
+                  identity.owned!.title.isNotEmpty
+                      ? identity.owned!.title
+                      : identity.owned!.album,
+                  identity.owned!.score.toStringAsFixed(2),
+                ),
+              ),
+            ],
+            if (result.needsArtistChoice &&
+                (identity?.artists.isNotEmpty ?? false)) ...[
+              const SizedBox(height: 8),
+              Text(localizations.musicFinderChooseArtist),
+              for (final a in identity!.artists)
+                RadioListTile<String>(
+                  dense: true,
+                  title: Text(a.name),
+                  subtitle: Text(
+                    "${a.source} · ${(a.score * 100).toStringAsFixed(0)}%"
+                    "${a.disambiguation.isNotEmpty ? ' · ${a.disambiguation}' : ''}",
+                  ),
+                  value: a.id,
+                  groupValue: selectedArtistId,
+                  onChanged: onContinueWithArtist == null
+                      ? null
+                      : (v) {
+                          if (v != null) {
+                            onArtistSelected(v);
+                          }
+                        },
+                ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: selectedArtistId == null ||
+                          onContinueWithArtist == null
+                      ? null
+                      : onContinueWithArtist,
+                  child: Text(localizations.musicFinderContinueWithArtist),
+                ),
+              ),
+            ] else if (identity?.selected != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                localizations.musicFinderSelectedArtist(
+                  identity!.selected!.name,
+                  identity.selected!.source,
+                  (identity.selected!.score * 100).toStringAsFixed(0),
+                ),
+              ),
+              if (identity.recordingTitle.isNotEmpty)
+                Text(
+                  "${localizations.musicFinderRecordingHint}: ${identity.recordingTitle}",
+                  style: theme.textTheme.bodySmall,
+                ),
+            ],
+          ],
         ),
       ),
     );

@@ -621,5 +621,58 @@
   "musicFinderConnectFailed": "Could not connect to Music Finder server",
   "@musicFinderConnectFailed": {
     "description": "Error when the Music Finder URL does not return HTTP 200"
+  },
+  "searchingButtonLabel": "Searching...",
+  "@searchingButtonLabel": {
+    "description": "Busy label while Music Finder search is in progress"
+  },
+  "musicFinderIdentity": "Identity",
+  "@musicFinderIdentity": {},
+  "musicFinderWarnings": "Warnings",
+  "@musicFinderWarnings": {},
+  "musicFinderAlreadyOwned": "Already in beets library: {artist} — {title} (score {score})",
+  "@musicFinderAlreadyOwned": {
+    "placeholders": {
+      "artist": {"type": "String"},
+      "title": {"type": "String"},
+      "score": {"type": "String"}
+    }
+  },
+  "musicFinderChooseArtist": "Multiple artists below auto-pick threshold — choose one:",
+  "@musicFinderChooseArtist": {},
+  "musicFinderContinueWithArtist": "Continue with selected artist",
+  "@musicFinderContinueWithArtist": {},
+  "musicFinderSelectedArtist": "Selected: {name} ({source}, {scorePercent}%)",
+  "@musicFinderSelectedArtist": {
+    "placeholders": {
+      "name": {"type": "String"},
+      "source": {"type": "String"},
+      "scorePercent": {"type": "String"}
+    }
+  },
+  "musicFinderRecordingHint": "Recording hint",
+  "@musicFinderRecordingHint": {},
+  "musicFinderMagnetCandidates": "Magnet candidates",
+  "@musicFinderMagnetCandidates": {},
+  "musicFinderScore": "Score",
+  "@musicFinderScore": {},
+  "musicFinderTitle": "Title",
+  "@musicFinderTitle": {},
+  "musicFinderHost": "Host",
+  "@musicFinderHost": {},
+  "musicFinderAddSelected": "Add selected to Transmission",
+  "@musicFinderAddSelected": {},
+  "musicFinderAddingLabel": "Adding...",
+  "@musicFinderAddingLabel": {},
+  "musicFinderNoCandidates": "No magnet candidates returned.",
+  "@musicFinderNoCandidates": {},
+  "musicFinderAddResults": "Add results",
+  "@musicFinderAddResults": {},
+  "musicFinderAddSummary": "Added {ok} of {total} magnets to Transmission",
+  "@musicFinderAddSummary": {
+    "placeholders": {
+      "ok": {"type": "int"},
+      "total": {"type": "int"}
+    }
   }
 }
