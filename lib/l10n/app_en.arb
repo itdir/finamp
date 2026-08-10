@@ -622,6 +622,26 @@
   "@musicFinderConnectFailed": {
     "description": "Error when the Music Finder URL does not return HTTP 200"
   },
+  "musicFinderServerSheetTitle": "Music Finder server",
+  "@musicFinderServerSheetTitle": {
+    "description": "Title for the Music Finder server setup bottom sheet"
+  },
+  "musicFinderServerSheetSubtitle": "Enter the URL of your Music Finder service, then connect.",
+  "@musicFinderServerSheetSubtitle": {
+    "description": "Subtitle explaining the server setup sheet"
+  },
+  "musicFinderChangeServer": "Change server",
+  "@musicFinderChangeServer": {
+    "description": "AppBar tooltip to reopen Music Finder server setup"
+  },
+  "musicFinderConnectRequired": "Connect to a Music Finder server to search.",
+  "@musicFinderConnectRequired": {
+    "description": "Empty-state message when not connected to Music Finder"
+  },
+  "musicFinderOpenServerSetup": "Set up server",
+  "@musicFinderOpenServerSetup": {
+    "description": "Button that opens the Music Finder server setup sheet"
+  },
   "searchingButtonLabel": "Searching...",
   "@searchingButtonLabel": {
     "description": "Busy label while Music Finder search is in progress"
