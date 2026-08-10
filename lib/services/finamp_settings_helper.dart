@@ -238,4 +238,11 @@ class FinampSettingsHelper {
     Hive.box<FinampSettings>("FinampSettings")
         .put("FinampSettings", finampSettingsTemp);
   }
+
+  static void setMusicFinderServerUrl(String? musicFinderServerUrl) {
+    FinampSettings finampSettingsTemp = finampSettings;
+    finampSettingsTemp.musicFinderServerUrl = musicFinderServerUrl;
+    Hive.box<FinampSettings>("FinampSettings")
+        .put("FinampSettings", finampSettingsTemp);
+  }
 }

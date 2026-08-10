@@ -12,10 +12,13 @@ class ExternalSearchButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      icon: ImageIcon(
-        const AssetImage(assetPath),
-        color: Theme.of(context).iconTheme.color ??
-            Theme.of(context).colorScheme.onSurface,
+      // Use Image.asset (not ImageIcon) so black/white artwork is not
+      // flattened into a solid tinted glyph.
+      icon: Image.asset(
+        assetPath,
+        width: 24,
+        height: 24,
+        filterQuality: FilterQuality.medium,
       ),
       tooltip: AppLocalizations.of(context)!.externalSearch,
       onPressed: () => Navigator.of(context)
@@ -30,10 +33,13 @@ class ExternalSearchLeadingIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ImageIcon(
-      const AssetImage(ExternalSearchButton.assetPath),
-      color: Theme.of(context).iconTheme.color ??
-          Theme.of(context).colorScheme.onSurface,
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: Image.asset(
+        ExternalSearchButton.assetPath,
+        filterQuality: FilterQuality.medium,
+      ),
     );
   }
 }

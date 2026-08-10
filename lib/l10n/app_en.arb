@@ -605,5 +605,21 @@
         "example": "Song: Hello, Artist: Adele"
       }
     }
+  },
+  "musicFinderServerUrl": "Music Finder Server URL",
+  "@musicFinderServerUrl": {
+    "description": "Label for the external Music Finder server URL field"
+  },
+  "connectButtonLabel": "Connect",
+  "@connectButtonLabel": {
+    "description": "Label for the Connect button on the external search screen"
+  },
+  "connectingButtonLabel": "Connecting...",
+  "@connectingButtonLabel": {
+    "description": "Busy label while probing the Music Finder server"
+  },
+  "musicFinderConnectFailed": "Could not connect to Music Finder server",
+  "@musicFinderConnectFailed": {
+    "description": "Error when the Music Finder URL does not return HTTP 200"
   }
 }

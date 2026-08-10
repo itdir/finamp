@@ -91,6 +91,7 @@ class FinampSettings {
     this.hasCompletedBlurhashImageMigration = true,
     this.hasCompletedBlurhashImageMigrationIdFix = true,
     this.swipeInsertQueueNext = _swipeInsertQueueNext,
+    this.musicFinderServerUrl,
   });
 
   @HiveField(0)
@@ -188,6 +189,10 @@ class FinampSettings {
 
   @HiveField(26, defaultValue: _swipeInsertQueueNext)
   bool swipeInsertQueueNext;
+
+  /// Base URL for the external Music Finder server (non-Jellyfin).
+  @HiveField(27)
+  String? musicFinderServerUrl;
 
   static Future<FinampSettings> create() async {
     final internalSongDir = await getInternalSongDir();
