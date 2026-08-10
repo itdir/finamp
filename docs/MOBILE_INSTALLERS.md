@@ -23,7 +23,7 @@ Options:
 SKIP_IOS=1 ./scripts/build-mobile-installers.sh              # Android only
 SKIP_ANDROID=1 ./scripts/build-mobile-installers.sh          # iOS only
 ANDROID_MODE=release ./scripts/build-mobile-installers.sh    # release APK (local keystore)
-IOS_BUNDLE_ID=com.brianperkins.finamp IOS_TEAM_ID=F3E25E64U6 ./scripts/build-mobile-installers.sh
+IOS_BUNDLE_ID=com.anonymous.finamp IOS_TEAM_ID=F3E25E64U6 ./scripts/build-mobile-installers.sh
 ```
 
 ## Prerequisites
@@ -61,22 +61,23 @@ SKIP_ANDROID=1 ./scripts/build-mobile-installers.sh
 The script temporarily overrides the upstream Finamp team/bundle id to:
 
 - Team: `F3E25E64U6`
-- Bundle ID: `com.brianperkins.finamp`
+- Bundle ID: `com.anonymous.finamp`
 
 then restores `ios/Runner.xcodeproj/project.pbxproj` afterward.
 
 ### 3. Install the IPA
 
+**Do not** AirDrop/Finder-copy the `.ipa` and tap it on the phone. Development IPAs are not installable that way and show *Unable to Install “Finamp” / Please try again later*.
+
+Use one of these instead (phone USB-connected):
+
 - Xcode → **Window → Devices and Simulators** → select iPhone → **+** under Installed Apps → choose `dist/finamp-ios-development.ipa`
-- Or Apple Configurator 2 → Add → that IPA
-- On iPhone: **Settings → General → VPN & Device Management** → trust the developer certificate
+- Apple Configurator 2 → Add → that IPA
+- Or from source: `flutter run --release -d <iphone-device-id>`
 
-### Alternative: install directly over USB
+Then on iPhone: **Settings → General → VPN & Device Management** → trust the developer certificate.
 
-```bash
-flutter devices   # note the iPhone id
-flutter run --release -d <iphone-device-id>
-```
+If install fails with a vague *Unable to Install* message, check the Mac console/`devicectl` log. A common build bug is every embedded framework sharing the app bundle id (`DuplicateIdentifier`) — the installer script avoids that by only changing the Runner target’s bundle id.
 
 ## Local signing overrides
 
