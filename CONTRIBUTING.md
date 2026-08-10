@@ -10,6 +10,10 @@ Finamp is a fairly standard Flutter app, so all you have to do is [install Flutt
 
 To build release APKs, you need to set up a signing key for Android. To get that set up, follow [this guide](https://docs.flutter.dev/deployment/android#signing-the-app) from the Flutter documentation. Note that if you have Finamp installed already, your phone may panic because the key is different.
 
+### Personal mobile installers (this fork)
+
+To build sideload APK / IPA packages for your own phones, see [docs/MOBILE_INSTALLERS.md](docs/MOBILE_INSTALLERS.md) and run `./scripts/build-mobile-installers.sh`.
+
 ### The Arcane Arts (Code Generation)
 
 ![A conversation between me and Chaphasilor. I say "did you try running (the Dart build command)?" They reply "I wasn't aware I need to use the arcane arts for this"](assets/arcane-arts.png)

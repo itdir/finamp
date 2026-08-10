@@ -1,2 +1,4 @@
 #include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+// Optional local overrides (team / bundle id). Created by scripts/build-mobile-installers.sh
+#include? "Local.xcconfig"
