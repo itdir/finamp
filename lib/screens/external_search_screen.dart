@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
@@ -66,9 +65,6 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
 
     final savedUrl = FinampSettingsHelper.finampSettings.musicFinderServerUrl;
     if (savedUrl != null && savedUrl.isNotEmpty) {
-      // Optimistic: show search immediately with the saved URL; verify in
-      // background. Cold starts were stuck on the connect sheet whenever the
-      // first probe raced or failed even though the host was fine.
       _serverUrl = savedUrl;
       _isConnected = true;
       _isConnecting = true;
@@ -162,7 +158,6 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     });
   }
 
-  /// True when [error] means the Music Finder host is unreachable.
   bool _isUnreachableError(Object error) {
     if (error is TimeoutException ||
         error is SocketException ||
@@ -305,7 +300,6 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
-    final node = FocusScope.of(context);
     final candidates = _result?.candidates ?? const [];
     final allSelected = candidates.isNotEmpty &&
         candidates.every((c) => _selectedMagnets.contains(c.magnet));
@@ -344,8 +338,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                         ElevatedButton.icon(
                           onPressed: () => _openServerSheet(force: true),
                           icon: const Icon(Icons.dns_outlined),
-                          label:
-                              Text(localizations.musicFinderOpenServerSetup),
+                          label: Text(
+                            localizations.musicFinderOpenServerSetup,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Align(
@@ -360,228 +355,219 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                         ),
                       ],
                     )
-                  : ListView(
-                      padding: const EdgeInsets.all(16.0),
-                      children: [
-                        TextField(
-                          controller: _songController,
-                          enabled: !_isSearching && !_isAdding,
-                          textInputAction: TextInputAction.next,
-                          onEditingComplete: () => node.nextFocus(),
-                          decoration: InputDecoration(
-                            labelText: localizations.song,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _artistController,
-                          enabled: !_isSearching && !_isAdding,
-                          textInputAction: TextInputAction.next,
-                          onEditingComplete: () => node.nextFocus(),
-                          decoration: InputDecoration(
-                            labelText: localizations.artist,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _albumController,
-                          enabled: !_isSearching && !_isAdding,
-                          textInputAction: TextInputAction.done,
-                          onEditingComplete:
-                              _canSearch ? () => _runSearch() : null,
-                          decoration: InputDecoration(
-                            labelText: localizations.album,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              onPressed: (_isSearching || _isAdding)
-                                  ? null
-                                  : _onCancel,
-                              child: Text(
-                                MaterialLocalizations.of(context)
-                                    .cancelButtonLabel,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ElevatedButton(
-                              onPressed:
-                                  _canSearch ? () => _runSearch() : null,
-                              child: Text(
-                                _isSearching
-                                    ? localizations.searchingButtonLabel
-                                    : localizations.searchButtonLabel,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (_searchError != null) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            _searchError!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                          ),
-                        ],
-                        if (_result != null) ...[
-                          const SizedBox(height: 24),
-                          _IdentitySection(
-                            result: _result!,
-                            selectedArtistId: _selectedArtistId,
-                            onArtistSelected: (id) {
-                              setState(() => _selectedArtistId = id);
-                            },
-                            onContinueWithArtist: _isSearching
-                                ? null
-                                : () {
-                                    if (_selectedArtistId != null) {
-                                      _runSearch(
-                                          artistId: _selectedArtistId);
-                                    }
-                                  },
-                          ),
-                        ],
-                        if (_result != null && candidates.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            localizations.musicFinderMagnetCandidates,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: DataTable(
-                              columns: [
-                                DataColumn(
-                                  label: Checkbox(
-                                    tristate: true,
-                                    value: allSelected
-                                        ? true
-                                        : (someSelected ? null : false),
-                                    onChanged:
-                                        _isAdding ? null : _toggleSelectAll,
+                  : CustomScrollView(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      slivers: [
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                          sliver: SliverToBoxAdapter(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _SearchFields(
+                                  songController: _songController,
+                                  artistController: _artistController,
+                                  albumController: _albumController,
+                                  enabled: !_isSearching && !_isAdding,
+                                  canSearch: _canSearch,
+                                  isSearching: _isSearching,
+                                  isAdding: _isAdding,
+                                  onSearch: () => _runSearch(),
+                                  onCancel: _onCancel,
+                                ),
+                                if (_searchError != null) ...[
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    _searchError!,
+                                    style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .error,
+                                    ),
                                   ),
-                                ),
-                                DataColumn(
-                                  label:
-                                      Text(localizations.musicFinderScore),
-                                ),
-                                DataColumn(
-                                  label:
-                                      Text(localizations.musicFinderTitle),
-                                ),
-                                DataColumn(
-                                  label:
-                                      Text(localizations.musicFinderHost),
-                                ),
-                              ],
-                              rows: [
-                                for (final c in candidates)
-                                  DataRow(
-                                    cells: [
-                                      DataCell(
-                                        Checkbox(
-                                          value: _selectedMagnets
-                                              .contains(c.magnet),
-                                          onChanged: _isAdding
-                                              ? null
-                                              : (checked) {
-                                                  setState(() {
-                                                    if (checked == true) {
-                                                      _selectedMagnets
-                                                          .add(c.magnet);
-                                                    } else {
-                                                      _selectedMagnets
-                                                          .remove(c.magnet);
-                                                    }
-                                                  });
-                                                },
+                                ],
+                                if (_result != null) ...[
+                                  const SizedBox(height: 12),
+                                  _IdentitySection(
+                                    result: _result!,
+                                    selectedArtistId: _selectedArtistId,
+                                    onArtistSelected: (id) {
+                                      setState(() => _selectedArtistId = id);
+                                    },
+                                    onContinueWithArtist: _isSearching
+                                        ? null
+                                        : () {
+                                            if (_selectedArtistId != null) {
+                                              _runSearch(
+                                                artistId: _selectedArtistId,
+                                              );
+                                            }
+                                          },
+                                  ),
+                                ],
+                                if (_result != null &&
+                                    candidates.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          localizations
+                                              .musicFinderMagnetCandidates,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium,
                                         ),
                                       ),
-                                      DataCell(
-                                        Text(c.score.toStringAsFixed(2)),
+                                      Checkbox(
+                                        tristate: true,
+                                        value: allSelected
+                                            ? true
+                                            : (someSelected ? null : false),
+                                        onChanged: _isAdding
+                                            ? null
+                                            : _toggleSelectAll,
                                       ),
-                                      DataCell(
-                                        SizedBox(
-                                          width: 220,
-                                          child: Text(
-                                            c.title,
-                                            maxLines: 3,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                      DataCell(Text(c.host)),
                                     ],
                                   ),
+                                ] else if (_result != null &&
+                                    !_result!.alreadyOwned &&
+                                    !_result!.needsArtistChoice) ...[
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    localizations.musicFinderNoCandidates,
+                                  ),
+                                  if (_result!
+                                      .scrapeReports.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    for (final r
+                                        in _result!.scrapeReports)
+                                      Text(
+                                        r.ok
+                                            ? "${r.host}: ok (${r.count})"
+                                            : "${r.host}: fail ${r.error}",
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
+                                      ),
+                                  ],
+                                ],
                               ],
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: ElevatedButton(
-                              onPressed: _canAdd ? _addSelected : null,
-                              child: Text(
-                                _isAdding
-                                    ? localizations.musicFinderAddingLabel
-                                    : localizations.musicFinderAddSelected,
+                        ),
+                        if (_result != null && candidates.isNotEmpty)
+                          SliverPadding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 8),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) {
+                                  final c = candidates[index];
+                                  return CheckboxListTile(
+                                    value: _selectedMagnets
+                                        .contains(c.magnet),
+                                    dense: true,
+                                    contentPadding:
+                                        const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                    onChanged: _isAdding
+                                        ? null
+                                        : (checked) {
+                                            setState(() {
+                                              if (checked == true) {
+                                                _selectedMagnets
+                                                    .add(c.magnet);
+                                              } else {
+                                                _selectedMagnets
+                                                    .remove(c.magnet);
+                                              }
+                                            });
+                                          },
+                                    title: Text(
+                                      c.title,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      "${localizations.musicFinderScore}: ${c.score.toStringAsFixed(2)}"
+                                      " · ${localizations.musicFinderHost}: ${c.host}",
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                },
+                                childCount: candidates.length,
                               ),
                             ),
                           ),
-                        ] else if (_result != null &&
-                            !_result!.alreadyOwned &&
-                            !_result!.needsArtistChoice) ...[
-                          const SizedBox(height: 16),
-                          Text(localizations.musicFinderNoCandidates),
-                          if (_result!.scrapeReports.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            for (final r in _result!.scrapeReports)
-                              Text(
-                                r.ok
-                                    ? "${r.host}: ok (${r.count})"
-                                    : "${r.host}: fail ${r.error}",
-                                style:
-                                    Theme.of(context).textTheme.bodySmall,
-                              ),
-                          ],
-                        ],
-                        if (_addResult != null) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            localizations.musicFinderAddResults,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          for (final r in _addResult!.results)
-                            ListTile(
-                              dense: true,
-                              leading: Icon(
-                                r.ok ? Icons.check_circle : Icons.error,
-                                color: r.ok
-                                    ? Colors.green
-                                    : Theme.of(context).colorScheme.error,
-                              ),
-                              title: Text(
-                                r.detail.isEmpty
-                                    ? (r.ok ? "ok" : "error")
-                                    : r.detail,
-                              ),
-                              subtitle: Text(
-                                r.magnet.length > 72
-                                    ? "${r.magnet.substring(0, 72)}…"
-                                    : r.magnet,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                        if (_result != null && candidates.isNotEmpty)
+                          SliverPadding(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                            sliver: SliverToBoxAdapter(
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: ElevatedButton(
+                                  onPressed:
+                                      _canAdd ? _addSelected : null,
+                                  child: Text(
+                                    _isAdding
+                                        ? localizations
+                                            .musicFinderAddingLabel
+                                        : localizations
+                                            .musicFinderAddSelected,
+                                  ),
+                                ),
                               ),
                             ),
-                        ],
+                          ),
+                        if (_addResult != null)
+                          SliverPadding(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            sliver: SliverList(
+                              delegate: SliverChildListDelegate([
+                                Text(
+                                  localizations.musicFinderAddResults,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
+                                ),
+                                for (final r in _addResult!.results)
+                                  ListTile(
+                                    dense: true,
+                                    leading: Icon(
+                                      r.ok
+                                          ? Icons.check_circle
+                                          : Icons.error,
+                                      color: r.ok
+                                          ? Colors.green
+                                          : Theme.of(context)
+                                              .colorScheme
+                                              .error,
+                                    ),
+                                    title: Text(
+                                      r.detail.isEmpty
+                                          ? (r.ok ? "ok" : "error")
+                                          : r.detail,
+                                    ),
+                                    subtitle: Text(
+                                      r.magnet.length > 72
+                                          ? "${r.magnet.substring(0, 72)}…"
+                                          : r.magnet,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ]),
+                            ),
+                          ),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: 24),
+                        ),
                       ],
                     ),
             ),
@@ -592,6 +578,126 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 }
 
+/// Search form: stacked in portrait, compact row in landscape / wide layouts.
+class _SearchFields extends StatelessWidget {
+  const _SearchFields({
+    required this.songController,
+    required this.artistController,
+    required this.albumController,
+    required this.enabled,
+    required this.canSearch,
+    required this.isSearching,
+    required this.isAdding,
+    required this.onSearch,
+    required this.onCancel,
+  });
+
+  final TextEditingController songController;
+  final TextEditingController artistController;
+  final TextEditingController albumController;
+  final bool enabled;
+  final bool canSearch;
+  final bool isSearching;
+  final bool isAdding;
+  final VoidCallback onSearch;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context)!;
+    final node = FocusScope.of(context);
+    final size = MediaQuery.of(context).size;
+    final wide = size.width >= 700 ||
+        MediaQuery.of(context).orientation == Orientation.landscape;
+
+    final songField = TextField(
+      controller: songController,
+      enabled: enabled,
+      textInputAction: TextInputAction.next,
+      onEditingComplete: () => node.nextFocus(),
+      decoration: InputDecoration(
+        labelText: localizations.song,
+        border: const OutlineInputBorder(),
+        isDense: wide,
+      ),
+    );
+    final artistField = TextField(
+      controller: artistController,
+      enabled: enabled,
+      textInputAction: TextInputAction.next,
+      onEditingComplete: () => node.nextFocus(),
+      decoration: InputDecoration(
+        labelText: localizations.artist,
+        border: const OutlineInputBorder(),
+        isDense: wide,
+      ),
+    );
+    final albumField = TextField(
+      controller: albumController,
+      enabled: enabled,
+      textInputAction: TextInputAction.done,
+      onEditingComplete: canSearch ? onSearch : null,
+      decoration: InputDecoration(
+        labelText: localizations.album,
+        border: const OutlineInputBorder(),
+        isDense: wide,
+      ),
+    );
+    final actions = Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        TextButton(
+          onPressed: (isSearching || isAdding) ? null : onCancel,
+          child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+        ),
+        const SizedBox(width: 8),
+        ElevatedButton(
+          onPressed: canSearch ? onSearch : null,
+          child: Text(
+            isSearching
+                ? localizations.searchingButtonLabel
+                : localizations.searchButtonLabel,
+          ),
+        ),
+      ],
+    );
+
+    if (wide) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: songField),
+              const SizedBox(width: 12),
+              Expanded(child: artistField),
+              const SizedBox(width: 12),
+              Expanded(child: albumField),
+            ],
+          ),
+          const SizedBox(height: 12),
+          actions,
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        songField,
+        const SizedBox(height: 16),
+        artistField,
+        const SizedBox(height: 16),
+        albumField,
+        const SizedBox(height: 16),
+        actions,
+      ],
+    );
+  }
+}
+
+/// User-facing identity prompts only (owned / pick artist). No diagnostics.
 class _IdentitySection extends StatelessWidget {
   const _IdentitySection({
     required this.result,
@@ -609,14 +715,12 @@ class _IdentitySection extends StatelessWidget {
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
     final identity = result.identity;
-    final theme = Theme.of(context);
 
     final showOwned = result.alreadyOwned && identity?.owned != null;
     final showChooser = result.needsArtistChoice &&
         (identity?.artists.isNotEmpty ?? false);
-    final showDiagnostics = kDebugMode;
 
-    if (!showOwned && !showChooser && !showDiagnostics) {
+    if (!showOwned && !showChooser) {
       return const SizedBox.shrink();
     }
 
@@ -626,57 +730,7 @@ class _IdentitySection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (showDiagnostics)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                childrenPadding: const EdgeInsets.only(bottom: 8),
-                title: Text(
-                  localizations.musicFinderDiagnostics,
-                  style: theme.textTheme.titleMedium,
-                ),
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "${localizations.musicFinderIdentity} (${result.status})",
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  ),
-                  if (result.warnings.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        "${localizations.musicFinderWarnings}: ${result.warnings.join(', ')}",
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                    ),
-                  ],
-                  if (!showChooser && identity?.selected != null) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        localizations.musicFinderSelectedArtist(
-                          identity!.selected!.name,
-                          identity.selected!.source,
-                          (identity.selected!.score * 100).toStringAsFixed(0),
-                        ),
-                      ),
-                    ),
-                    if (identity.recordingTitle.isNotEmpty)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          "${localizations.musicFinderRecordingHint}: ${identity.recordingTitle}",
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                  ],
-                ],
-              ),
-            if (showOwned) ...[
-              if (showDiagnostics) const SizedBox(height: 8),
+            if (showOwned)
               Text(
                 localizations.musicFinderAlreadyOwned(
                   identity!.owned!.artist,
@@ -686,9 +740,8 @@ class _IdentitySection extends StatelessWidget {
                   identity.owned!.score.toStringAsFixed(2),
                 ),
               ),
-            ],
             if (showChooser) ...[
-              if (showDiagnostics || showOwned) const SizedBox(height: 8),
+              if (showOwned) const SizedBox(height: 8),
               Text(localizations.musicFinderChooseArtist),
               for (final a in identity!.artists)
                 RadioListTile<String>(
