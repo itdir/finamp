@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
@@ -10,8 +13,10 @@ import '../services/music_finder_client.dart';
 /// External Music Finder search — mirrors downloads.local music-search UI.
 ///
 /// On open, if a Music Finder URL is stored in settings, Connect runs
-/// automatically (`GET /api/health` → 200) before search fields are shown.
-/// Status/warnings stay under a debug-only Diagnostics expansion.
+/// automatically (`GET /api/health` → 200). After a successful health check,
+/// the URL field and Connect control are hidden until the server becomes
+/// unreachable again. Status/warnings stay under a debug-only Diagnostics
+/// expansion.
 class ExternalSearchScreen extends StatefulWidget {
   const ExternalSearchScreen({Key? key}) : super(key: key);
 
@@ -181,6 +186,34 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     }
   }
 
+  /// True when [error] means the Music Finder host is unreachable.
+  bool _isUnreachableError(Object error) {
+    if (error is TimeoutException ||
+        error is SocketException ||
+        error is HandshakeException ||
+        error is HttpException) {
+      return true;
+    }
+    if (error is MusicFinderException) {
+      final code = error.statusCode;
+      return code == null || code >= 500;
+    }
+    return false;
+  }
+
+  void _applyUnreachableState(Object error) {
+    if (!_isUnreachableError(error)) {
+      return;
+    }
+    _isConnected = false;
+    _result = null;
+    _addResult = null;
+    _selectedMagnets.clear();
+    _selectedArtistId = null;
+    _serverUrlError =
+        AppLocalizations.of(context)!.musicFinderConnectFailed;
+  }
+
   Future<void> _runSearch({String? artistId}) async {
     if (_isSearching || !_isConnected) {
       return;
@@ -224,6 +257,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         _isSearching = false;
         _result = null;
         _searchError = e.toString();
+        _applyUnreachableState(e);
       });
     }
   }
@@ -266,6 +300,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       }
       setState(() {
         _isAdding = false;
+        _applyUnreachableState(e);
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())),
@@ -308,36 +343,37 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
-            TextField(
-              controller: _serverUrlController,
-              enabled: !_isConnecting && !_isSearching && !_isAdding,
-              keyboardType: TextInputType.url,
-              autocorrect: false,
-              textInputAction: TextInputAction.done,
-              onEditingComplete: _connect,
-              decoration: InputDecoration(
-                labelText: localizations.musicFinderServerUrl,
-                hintText: "http://downloads.local:8088",
-                border: const OutlineInputBorder(),
-                errorText: _serverUrlError,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton(
-                onPressed: (_isConnecting || _isSearching || _isAdding)
-                    ? null
-                    : _connect,
-                child: Text(
-                  _isConnecting
-                      ? localizations.connectingButtonLabel
-                      : localizations.connectButtonLabel,
+            if (!_isConnected) ...[
+              TextField(
+                controller: _serverUrlController,
+                enabled: !_isConnecting && !_isSearching && !_isAdding,
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                textInputAction: TextInputAction.done,
+                onEditingComplete: _connect,
+                decoration: InputDecoration(
+                  labelText: localizations.musicFinderServerUrl,
+                  hintText: "http://downloads.local:8088",
+                  border: const OutlineInputBorder(),
+                  errorText: _serverUrlError,
                 ),
               ),
-            ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: (_isConnecting || _isSearching || _isAdding)
+                      ? null
+                      : _connect,
+                  child: Text(
+                    _isConnecting
+                        ? localizations.connectingButtonLabel
+                        : localizations.connectButtonLabel,
+                  ),
+                ),
+              ),
+            ],
             if (_isConnected) ...[
-              const SizedBox(height: 24),
               TextField(
                 controller: _songController,
                 enabled: !_isSearching && !_isAdding,
