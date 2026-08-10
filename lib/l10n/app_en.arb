@@ -628,6 +628,10 @@
   },
   "musicFinderIdentity": "Identity",
   "@musicFinderIdentity": {},
+  "musicFinderDiagnostics": "Diagnostics",
+  "@musicFinderDiagnostics": {
+    "description": "Debug-only expandable section for Music Finder status and warnings"
+  },
   "musicFinderWarnings": "Warnings",
   "@musicFinderWarnings": {},
   "musicFinderAlreadyOwned": "Already in beets library: {artist} — {title} (score {score})",

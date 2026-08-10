@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
@@ -8,8 +9,9 @@ import '../services/music_finder_client.dart';
 
 /// External Music Finder search — mirrors downloads.local music-search UI.
 ///
-/// Requires a reachable Music Finder server (`GET /api/health` → 200) before
-/// search fields are shown.
+/// On open, if a Music Finder URL is stored in settings, Connect runs
+/// automatically (`GET /api/health` → 200) before search fields are shown.
+/// Status/warnings stay under a debug-only Diagnostics expansion.
 class ExternalSearchScreen extends StatefulWidget {
   const ExternalSearchScreen({Key? key}) : super(key: key);
 
@@ -30,6 +32,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   bool _isConnected = false;
   bool _isSearching = false;
   bool _isAdding = false;
+  bool _serverUrlListenerAttached = false;
   String? _serverUrlError;
   String? _searchError;
   String? _selectedArtistId;
@@ -52,22 +55,34 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   bool get _canAdd =>
       _isConnected && !_isAdding && _selectedMagnets.isNotEmpty;
 
+  void _attachServerUrlListener() {
+    if (_serverUrlListenerAttached || !mounted) {
+      return;
+    }
+    _serverUrlController.addListener(_onServerUrlEdited);
+    _serverUrlListenerAttached = true;
+  }
+
   @override
   void initState() {
     super.initState();
     _songController.addListener(_onFieldChanged);
     _artistController.addListener(_onFieldChanged);
     _albumController.addListener(_onFieldChanged);
-    _serverUrlController.addListener(_onServerUrlEdited);
 
     final savedUrl = FinampSettingsHelper.finampSettings.musicFinderServerUrl;
     if (savedUrl != null && savedUrl.isNotEmpty) {
+      // Hydrate URL without the edit listener (setting .text would clear connect).
       _serverUrlController.text = savedUrl;
+      _isConnecting = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _connect();
+        if (!mounted) {
+          return;
         }
+        _connect().whenComplete(_attachServerUrlListener);
       });
+    } else {
+      _attachServerUrlListener();
     }
   }
 
@@ -76,7 +91,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   void _onServerUrlEdited() {
-    if (_isConnected || _result != null) {
+    if (_isConnecting) {
+      return;
+    }
+    if (_isConnected || _result != null || _serverUrlError != null) {
       setState(() {
         _isConnected = false;
         _serverUrlError = null;
@@ -94,7 +112,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     _songController.removeListener(_onFieldChanged);
     _artistController.removeListener(_onFieldChanged);
     _albumController.removeListener(_onFieldChanged);
-    _serverUrlController.removeListener(_onServerUrlEdited);
+    if (_serverUrlListenerAttached) {
+      _serverUrlController.removeListener(_onServerUrlEdited);
+    }
     _serverUrlController.dispose();
     _songController.dispose();
     _artistController.dispose();
@@ -548,25 +568,74 @@ class _IdentitySection extends StatelessWidget {
     final identity = result.identity;
     final theme = Theme.of(context);
 
+    final showOwned = result.alreadyOwned && identity?.owned != null;
+    final showChooser = result.needsArtistChoice &&
+        (identity?.artists.isNotEmpty ?? false);
+    final showDiagnostics = kDebugMode;
+
+    // Release: only mount when the user must act or see owned status.
+    // Debug: also offer a collapsed Diagnostics expansion (status/warnings).
+    if (!showOwned && !showChooser && !showDiagnostics) {
+      return const SizedBox.shrink();
+    }
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              "${localizations.musicFinderIdentity} (${result.status})",
-              style: theme.textTheme.titleMedium,
-            ),
-            if (result.warnings.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                "${localizations.musicFinderWarnings}: ${result.warnings.join(', ')}",
-                style: TextStyle(color: theme.colorScheme.error),
+            if (showDiagnostics)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(bottom: 8),
+                title: Text(
+                  localizations.musicFinderDiagnostics,
+                  style: theme.textTheme.titleMedium,
+                ),
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      "${localizations.musicFinderIdentity} (${result.status})",
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  if (result.warnings.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "${localizations.musicFinderWarnings}: ${result.warnings.join(', ')}",
+                        style: TextStyle(color: theme.colorScheme.error),
+                      ),
+                    ),
+                  ],
+                  if (!showChooser && identity?.selected != null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        localizations.musicFinderSelectedArtist(
+                          identity!.selected!.name,
+                          identity.selected!.source,
+                          (identity.selected!.score * 100).toStringAsFixed(0),
+                        ),
+                      ),
+                    ),
+                    if (identity.recordingTitle.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          "${localizations.musicFinderRecordingHint}: ${identity.recordingTitle}",
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                  ],
+                ],
               ),
-            ],
-            if (result.alreadyOwned && identity?.owned != null) ...[
-              const SizedBox(height: 8),
+            if (showOwned) ...[
+              if (showDiagnostics) const SizedBox(height: 8),
               Text(
                 localizations.musicFinderAlreadyOwned(
                   identity!.owned!.artist,
@@ -577,9 +646,8 @@ class _IdentitySection extends StatelessWidget {
                 ),
               ),
             ],
-            if (result.needsArtistChoice &&
-                (identity?.artists.isNotEmpty ?? false)) ...[
-              const SizedBox(height: 8),
+            if (showChooser) ...[
+              if (showDiagnostics || showOwned) const SizedBox(height: 8),
               Text(localizations.musicFinderChooseArtist),
               for (final a in identity!.artists)
                 RadioListTile<String>(
@@ -609,20 +677,6 @@ class _IdentitySection extends StatelessWidget {
                   child: Text(localizations.musicFinderContinueWithArtist),
                 ),
               ),
-            ] else if (identity?.selected != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                localizations.musicFinderSelectedArtist(
-                  identity!.selected!.name,
-                  identity.selected!.source,
-                  (identity.selected!.score * 100).toStringAsFixed(0),
-                ),
-              ),
-              if (identity.recordingTitle.isNotEmpty)
-                Text(
-                  "${localizations.musicFinderRecordingHint}: ${identity.recordingTitle}",
-                  style: theme.textTheme.bodySmall,
-                ),
             ],
           ],
         ),
