@@ -293,7 +293,16 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     try {
       final addResult = await _musicFinderClient.addItems(
         baseUrl: _baseUrl,
-        itemIds: _selectedItemIds.toList(),
+        itemIds: [
+          for (var i = 0; i < (_result?.candidates.length ?? 0); i++)
+            if (_selectedItemIds.contains(
+              (_result!.candidates[i].id.isNotEmpty)
+                  ? _result!.candidates[i].id
+                  : "idx:$i",
+            ))
+              if (_result!.candidates[i].id.isNotEmpty)
+                _result!.candidates[i].id,
+        ],
       );
       if (!mounted) {
         return;
@@ -336,7 +345,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       if (select == true) {
         _selectedItemIds
           ..clear()
-          ..addAll(candidates.map((c) => c.id));
+          ..addAll([
+            for (var i = 0; i < candidates.length; i++)
+              candidates[i].id.isNotEmpty ? candidates[i].id : "idx:$i",
+          ]);
       } else {
         _selectedItemIds.clear();
       }
@@ -541,8 +553,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
               itemCount: candidates.length,
               itemBuilder: (context, index) {
                 final c = candidates[index];
+                final itemKey = c.id.isNotEmpty ? c.id : "idx:$index";
                 return CheckboxListTile(
-                  value: _selectedItemIds.contains(c.id),
+                  key: ValueKey(itemKey),
+                  value: _selectedItemIds.contains(itemKey),
                   dense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                   onChanged: _isAdding
@@ -550,9 +564,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                       : (checked) {
                           setState(() {
                             if (checked == true) {
-                              _selectedItemIds.add(c.id);
+                              _selectedItemIds.add(itemKey);
                             } else {
-                              _selectedItemIds.remove(c.id);
+                              _selectedItemIds.remove(itemKey);
                             }
                           });
                         },
@@ -580,7 +594,11 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     final localizations = AppLocalizations.of(context)!;
     final candidates = _result?.candidates ?? const [];
     final allSelected = candidates.isNotEmpty &&
-        candidates.every((c) => _selectedItemIds.contains(c.id));
+        List.generate(candidates.length, (i) {
+          final c = candidates[i];
+          final key = c.id.isNotEmpty ? c.id : "idx:$i";
+          return _selectedItemIds.contains(key);
+        }).every((v) => v);
     final someSelected = _selectedItemIds.isNotEmpty && !allSelected;
     final hasCandidates = candidates.isNotEmpty;
 

@@ -53,6 +53,8 @@ class MusicFinderClient {
   }) async {
     final response = await _postJson(baseUrl, "/api/v1/add", {
       "items": itemIds,
+      // Legacy field name for Music Finder builds that predate `items`.
+      "magnets": itemIds,
     });
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw MusicFinderException(

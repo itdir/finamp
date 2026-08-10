@@ -108,10 +108,20 @@ class MusicFinderCandidate {
   factory MusicFinderCandidate.fromJson(Map<String, dynamic> json) {
     return MusicFinderCandidate(
       title: json["title"]?.toString() ?? "",
-      id: json["id"]?.toString() ?? "",
+      id: _itemIdFromJson(json),
       score: (json["score"] as num?)?.toDouble() ?? 0.0,
     );
   }
+}
+
+/// Prefer neutral `id`; accept legacy wire field so undeployed servers still work.
+String _itemIdFromJson(Map<String, dynamic> json) {
+  final id = json["id"]?.toString() ?? "";
+  if (id.isNotEmpty) {
+    return id;
+  }
+  final legacy = json["magnet"]?.toString() ?? "";
+  return legacy;
 }
 
 class MusicFinderSearchResult {
@@ -175,7 +185,7 @@ class MusicFinderAddItemResult {
 
   factory MusicFinderAddItemResult.fromJson(Map<String, dynamic> json) {
     return MusicFinderAddItemResult(
-      id: json["id"]?.toString() ?? "",
+      id: _itemIdFromJson(json),
       ok: json["ok"] == true,
       detail: json["detail"]?.toString() ?? "",
     );
