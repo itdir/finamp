@@ -1,4 +1,4 @@
-/// DTOs for the LCT Music Search API (downloads.local music-search).
+/// DTOs for the external Music Finder HTTP API.
 
 class MusicFinderArtistOption {
   const MusicFinderArtistOption({
@@ -93,51 +93,23 @@ class MusicFinderIdentity {
   }
 }
 
-class MusicFinderMagnetCandidate {
-  const MusicFinderMagnetCandidate({
+class MusicFinderCandidate {
+  const MusicFinderCandidate({
     required this.title,
-    required this.magnet,
-    required this.host,
+    required this.id,
     this.score = 0.0,
-    this.seeders,
   });
 
   final String title;
-  final String magnet;
-  final String host;
+  /// Opaque server item id used when adding to the library.
+  final String id;
   final double score;
-  final int? seeders;
 
-  factory MusicFinderMagnetCandidate.fromJson(Map<String, dynamic> json) {
-    return MusicFinderMagnetCandidate(
+  factory MusicFinderCandidate.fromJson(Map<String, dynamic> json) {
+    return MusicFinderCandidate(
       title: json["title"]?.toString() ?? "",
-      magnet: json["magnet"]?.toString() ?? "",
-      host: json["host"]?.toString() ?? "",
+      id: json["id"]?.toString() ?? "",
       score: (json["score"] as num?)?.toDouble() ?? 0.0,
-      seeders: (json["seeders"] as num?)?.toInt(),
-    );
-  }
-}
-
-class MusicFinderScrapeReport {
-  const MusicFinderScrapeReport({
-    required this.host,
-    required this.ok,
-    this.error = "",
-    this.count = 0,
-  });
-
-  final String host;
-  final bool ok;
-  final String error;
-  final int count;
-
-  factory MusicFinderScrapeReport.fromJson(Map<String, dynamic> json) {
-    return MusicFinderScrapeReport(
-      host: json["host"]?.toString() ?? "",
-      ok: json["ok"] == true,
-      error: json["error"]?.toString() ?? "",
-      count: (json["count"] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -152,7 +124,6 @@ class MusicFinderSearchResult {
     this.warnings = const [],
     this.identity,
     this.candidates = const [],
-    this.scrapeReports = const [],
   });
 
   final String status;
@@ -162,15 +133,13 @@ class MusicFinderSearchResult {
   final String query;
   final List<String> warnings;
   final MusicFinderIdentity? identity;
-  final List<MusicFinderMagnetCandidate> candidates;
-  final List<MusicFinderScrapeReport> scrapeReports;
+  final List<MusicFinderCandidate> candidates;
 
   bool get needsArtistChoice => status == "need_artist_choice";
   bool get alreadyOwned => status == "already_owned";
 
   factory MusicFinderSearchResult.fromJson(Map<String, dynamic> json) {
     final candidatesRaw = json["candidates"] as List? ?? const [];
-    final reportsRaw = json["scrape_reports"] as List? ?? const [];
     return MusicFinderSearchResult(
       status: json["status"]?.toString() ?? "",
       song: json["song"]?.toString() ?? "",
@@ -186,13 +155,8 @@ class MusicFinderSearchResult {
           : MusicFinderIdentity.fromJson(null),
       candidates: candidatesRaw
           .whereType<Map>()
-          .map((e) => MusicFinderMagnetCandidate.fromJson(
-              Map<String, dynamic>.from(e)))
-          .toList(),
-      scrapeReports: reportsRaw
-          .whereType<Map>()
           .map((e) =>
-              MusicFinderScrapeReport.fromJson(Map<String, dynamic>.from(e)))
+              MusicFinderCandidate.fromJson(Map<String, dynamic>.from(e)))
           .toList(),
     );
   }
@@ -200,18 +164,18 @@ class MusicFinderSearchResult {
 
 class MusicFinderAddItemResult {
   const MusicFinderAddItemResult({
-    required this.magnet,
+    required this.id,
     required this.ok,
     this.detail = "",
   });
 
-  final String magnet;
+  final String id;
   final bool ok;
   final String detail;
 
   factory MusicFinderAddItemResult.fromJson(Map<String, dynamic> json) {
     return MusicFinderAddItemResult(
-      magnet: json["magnet"]?.toString() ?? "",
+      id: json["id"]?.toString() ?? "",
       ok: json["ok"] == true,
       detail: json["detail"]?.toString() ?? "",
     );

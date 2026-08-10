@@ -634,13 +634,29 @@
   "@musicFinderChangeServer": {
     "description": "AppBar tooltip to reopen Music Finder server setup"
   },
-  "musicFinderConnectRequired": "Connect to a Music Finder server to search.",
-  "@musicFinderConnectRequired": {
-    "description": "Empty-state message when not connected to Music Finder"
+  "musicFinderServerConfigured": "Configured",
+  "@musicFinderServerConfigured": {
+    "description": "Settings subtitle when a Music Finder URL is saved (does not show the URL)"
   },
-  "musicFinderOpenServerSetup": "Set up server",
-  "@musicFinderOpenServerSetup": {
-    "description": "Button that opens the Music Finder server setup sheet"
+  "musicFinderServerNotConfigured": "Not configured",
+  "@musicFinderServerNotConfigured": {
+    "description": "Settings subtitle when Music Finder is not set up"
+  },
+  "musicFinderServerSaved": "Music Finder server saved",
+  "@musicFinderServerSaved": {
+    "description": "Snackbar after a successful Music Finder connect from Settings"
+  },
+  "musicFinderServerCleared": "Music Finder server cleared",
+  "@musicFinderServerCleared": {
+    "description": "Snackbar after clearing the Music Finder URL"
+  },
+  "musicFinderServerUnavailable": "Music Finder server is unreachable",
+  "@musicFinderServerUnavailable": {
+    "description": "Shown when External Search cannot reach the configured server"
+  },
+  "musicFinderClearServer": "Clear server",
+  "@musicFinderClearServer": {
+    "description": "Tooltip for clearing the Music Finder URL in Settings"
   },
   "searchingButtonLabel": "Searching...",
   "@searchingButtonLabel": {
@@ -654,7 +670,7 @@
   },
   "musicFinderWarnings": "Warnings",
   "@musicFinderWarnings": {},
-  "musicFinderAlreadyOwned": "Already in beets library: {artist} — {title} (score {score})",
+  "musicFinderAlreadyOwned": "Already in library: {artist} — {title} (score {score})",
   "@musicFinderAlreadyOwned": {
     "placeholders": {
       "artist": {"type": "String"},
@@ -676,17 +692,17 @@
   },
   "musicFinderRecordingHint": "Recording hint",
   "@musicFinderRecordingHint": {},
-  "musicFinderMagnetCandidates": "Magnet candidates",
-  "@musicFinderMagnetCandidates": {},
+  "musicFinderResults": "Results",
+  "@musicFinderResults": {
+    "description": "Heading for External Search result list"
+  },
   "musicFinderScore": "Score",
   "@musicFinderScore": {},
   "musicFinderTitle": "Title",
   "@musicFinderTitle": {},
-  "musicFinderHost": "Host",
-  "@musicFinderHost": {},
   "musicFinderAddSelected": "Add to Library",
   "@musicFinderAddSelected": {
-    "description": "Primary action to queue selected magnets from External Search"
+    "description": "Primary action to add selected External Search results to the library"
   },
   "musicFinderAddingLabel": "Adding...",
   "@musicFinderAddingLabel": {},
@@ -698,11 +714,11 @@
   "@musicFinderScrollUp": {},
   "musicFinderScrollDown": "Scroll down",
   "@musicFinderScrollDown": {},
-  "musicFinderNoCandidates": "No magnet candidates returned.",
+  "musicFinderNoCandidates": "No results found.",
   "@musicFinderNoCandidates": {},
   "musicFinderAddResults": "Add results",
   "@musicFinderAddResults": {},
-  "musicFinderAddSummary": "Added {ok} of {total} magnets to Transmission",
+  "musicFinderAddSummary": "Added {ok} of {total} to library",
   "@musicFinderAddSummary": {
     "placeholders": {
       "ok": {"type": "int"},

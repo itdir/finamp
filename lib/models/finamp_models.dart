@@ -190,7 +190,7 @@ class FinampSettings {
   @HiveField(26, defaultValue: _swipeInsertQueueNext)
   bool swipeInsertQueueNext;
 
-  /// Base URL for the external Music Finder server (non-Jellyfin).
+  /// Base URL for the external Music Finder service (non-Jellyfin).
   @HiveField(27)
   String? musicFinderServerUrl;
 

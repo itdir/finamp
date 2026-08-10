@@ -10,11 +10,10 @@ import '../models/music_finder_models.dart';
 import '../services/finamp_settings_helper.dart';
 import '../services/music_finder_client.dart';
 
-/// External Music Finder search — mirrors downloads.local music-search UI.
+/// External Music Finder search against a self-hosted Music Finder service.
 ///
-/// Server URL entry lives in a modal bottom sheet. A stored URL restores the
-/// search UI immediately and is re-checked in the background; the sheet only
-/// appears when there is no URL or the host is unreachable.
+/// Entry points are hidden until Settings stores a URL after a successful
+/// health check. Opening this route without a reachable server pops back.
 class ExternalSearchScreen extends StatefulWidget {
   const ExternalSearchScreen({Key? key}) : super(key: key);
 
@@ -42,7 +41,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
 
   MusicFinderSearchResult? _result;
   MusicFinderAddResult? _addResult;
-  final Set<String> _selectedMagnets = {};
+  final Set<String> _selectedItemIds = {};
 
   String get _baseUrl => _serverUrl?.trim() ?? "";
 
@@ -55,7 +54,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   bool get _canAdd =>
-      _isConnected && !_isAdding && _selectedMagnets.isNotEmpty;
+      _isConnected && !_isAdding && _selectedItemIds.isNotEmpty;
 
   @override
   void initState() {
@@ -64,23 +63,25 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     _artistController.addListener(_onFieldChanged);
     _albumController.addListener(_onFieldChanged);
 
-    final savedUrl = FinampSettingsHelper.finampSettings.musicFinderServerUrl;
-    if (savedUrl != null && savedUrl.isNotEmpty) {
-      _serverUrl = savedUrl;
-      _isConnected = true;
-      _isConnecting = true;
+    final savedUrl =
+        FinampSettingsHelper.finampSettings.musicFinderServerUrl?.trim();
+    if (savedUrl == null || savedUrl.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _verifySavedServer(savedUrl);
+          Navigator.of(context).pop();
         }
       });
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _openServerSheet(force: true);
-        }
-      });
+      return;
     }
+
+    _serverUrl = savedUrl;
+    _isConnected = false;
+    _isConnecting = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _verifySavedServer(savedUrl);
+      }
+    });
   }
 
   void _onFieldChanged() {
@@ -111,15 +112,26 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         _isConnected = true;
         _serverUrl = url;
       });
-      FinampSettingsHelper.setMusicFinderServerUrl(url);
       return;
     }
 
-    setState(() {
-      _isConnecting = false;
-      _isConnected = false;
-    });
-    await _openServerSheet(force: true);
+    await _leaveBecauseServerUnavailable();
+  }
+
+  Future<void> _leaveBecauseServerUnavailable() async {
+    FinampSettingsHelper.setMusicFinderServerUrl(null);
+    if (!mounted) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocalizations.of(context)!.musicFinderServerUnavailable,
+        ),
+      ),
+    );
+    Navigator.of(context).pop();
   }
 
   Future<void> _openServerSheet({bool force = false}) async {
@@ -149,7 +161,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         _searchError = null;
         _result = null;
         _addResult = null;
-        _selectedMagnets.clear();
+        _selectedItemIds.clear();
       });
       FinampSettingsHelper.setMusicFinderServerUrl(connectedUrl);
       return;
@@ -182,10 +194,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       _isConnected = false;
       _result = null;
       _addResult = null;
-      _selectedMagnets.clear();
+      _selectedItemIds.clear();
       _selectedArtistId = null;
     });
-    await _openServerSheet(force: true);
+    await _leaveBecauseServerUnavailable();
   }
 
   Future<void> _runSearch({String? artistId}) async {
@@ -202,7 +214,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       _isSearching = true;
       _searchError = null;
       _addResult = null;
-      _selectedMagnets.clear();
+      _selectedItemIds.clear();
       if (artistId != null) {
         _selectedArtistId = artistId;
       }
@@ -247,9 +259,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     });
 
     try {
-      final addResult = await _musicFinderClient.addMagnets(
+      final addResult = await _musicFinderClient.addItems(
         baseUrl: _baseUrl,
-        magnets: _selectedMagnets.toList(),
+        itemIds: _selectedItemIds.toList(),
       );
       if (!mounted) {
         return;
@@ -290,11 +302,11 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     final candidates = _result?.candidates ?? const [];
     setState(() {
       if (select == true) {
-        _selectedMagnets
+        _selectedItemIds
           ..clear()
-          ..addAll(candidates.map((c) => c.magnet));
+          ..addAll(candidates.map((c) => c.id));
       } else {
-        _selectedMagnets.clear();
+        _selectedItemIds.clear();
       }
     });
   }
@@ -373,16 +385,6 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
               !_result!.needsArtistChoice) ...[
             const SizedBox(height: 16),
             Text(localizations.musicFinderNoCandidates),
-            if (_result!.scrapeReports.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              for (final r in _result!.scrapeReports)
-                Text(
-                  r.ok
-                      ? "${r.host}: ok (${r.count})"
-                      : "${r.host}: fail ${r.error}",
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-            ],
           ],
           if (_addResult != null) ...[
             const SizedBox(height: 16),
@@ -403,13 +405,6 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                 title: Text(
                   r.detail.isEmpty ? (r.ok ? "ok" : "error") : r.detail,
                 ),
-                subtitle: Text(
-                  r.magnet.length > 72
-                      ? "${r.magnet.substring(0, 72)}…"
-                      : r.magnet,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
               ),
           ],
         ],
@@ -419,7 +414,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
 
   Widget _buildResultsPane(
     AppLocalizations localizations,
-    List<MusicFinderMagnetCandidate> candidates,
+    List<MusicFinderCandidate> candidates,
     bool allSelected,
     bool someSelected,
   ) {
@@ -438,12 +433,12 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        localizations.musicFinderMagnetCandidates,
+                        localizations.musicFinderResults,
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
                     Text(
-                      "${_selectedMagnets.length}/${candidates.length}",
+                      "${_selectedItemIds.length}/${candidates.length}",
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Checkbox(
@@ -515,7 +510,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
               itemBuilder: (context, index) {
                 final c = candidates[index];
                 return CheckboxListTile(
-                  value: _selectedMagnets.contains(c.magnet),
+                  value: _selectedItemIds.contains(c.id),
                   dense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                   onChanged: _isAdding
@@ -523,9 +518,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                       : (checked) {
                           setState(() {
                             if (checked == true) {
-                              _selectedMagnets.add(c.magnet);
+                              _selectedItemIds.add(c.id);
                             } else {
-                              _selectedMagnets.remove(c.magnet);
+                              _selectedItemIds.remove(c.id);
                             }
                           });
                         },
@@ -535,9 +530,8 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Text(
-                    "${localizations.musicFinderScore}: ${c.score.toStringAsFixed(2)}"
-                    " · ${localizations.musicFinderHost}: ${c.host}",
-                    maxLines: 2,
+                    "${localizations.musicFinderScore}: ${c.score.toStringAsFixed(2)}",
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 );
@@ -554,8 +548,8 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     final localizations = AppLocalizations.of(context)!;
     final candidates = _result?.candidates ?? const [];
     final allSelected = candidates.isNotEmpty &&
-        candidates.every((c) => _selectedMagnets.contains(c.magnet));
-    final someSelected = _selectedMagnets.isNotEmpty && !allSelected;
+        candidates.every((c) => _selectedItemIds.contains(c.id));
+    final someSelected = _selectedItemIds.isNotEmpty && !allSelected;
     final hasCandidates = candidates.isNotEmpty;
 
     return Scaffold(
@@ -576,38 +570,11 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            if (_isConnecting && _isConnected)
+            if (_isConnecting)
               const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: !_isConnected
-                  ? ListView(
-                      padding: const EdgeInsets.all(16.0),
-                      children: [
-                        Text(
-                          localizations.musicFinderConnectRequired,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: () => _openServerSheet(force: true),
-                          icon: const Icon(Icons.dns_outlined),
-                          label: Text(
-                            localizations.musicFinderOpenServerSetup,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            onPressed: _onCancel,
-                            child: Text(
-                              MaterialLocalizations.of(context)
-                                  .cancelButtonLabel,
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
+                  ? const Center(child: CircularProgressIndicator())
                   : Column(
                       children: [
                         Flexible(

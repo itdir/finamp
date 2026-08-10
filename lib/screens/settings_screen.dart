@@ -4,6 +4,7 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:locale_names/locale_names.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../components/ExternalSearch/music_finder_server_settings_tile.dart';
 import '../services/finamp_settings_helper.dart';
 import '../services/locale_helper.dart';
 import 'transcoding_settings_screen.dart';
@@ -95,6 +96,7 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => Navigator.of(context)
                   .pushNamed(LanguageSelectionScreen.routeName),
             ),
+            const MusicFinderServerSettingsTile(),
             const LogoutListTile(),
           ],
         ),

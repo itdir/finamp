@@ -4,7 +4,7 @@ import 'dart:io';
 
 import '../models/music_finder_models.dart';
 
-/// Client for the LCT Music Search service (non-Jellyfin).
+/// HTTP client for a self-hosted Music Finder service (non-Jellyfin).
 class MusicFinderClient {
   Uri _apiUri(String baseUrl, String path) {
     final root = baseUrl.endsWith("/")
@@ -47,12 +47,12 @@ class MusicFinderClient {
     return MusicFinderSearchResult.fromJson(response.json);
   }
 
-  Future<MusicFinderAddResult> addMagnets({
+  Future<MusicFinderAddResult> addItems({
     required String baseUrl,
-    required List<String> magnets,
+    required List<String> itemIds,
   }) async {
     final response = await _postJson(baseUrl, "/api/v1/add", {
-      "magnets": magnets,
+      "items": itemIds,
     });
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw MusicFinderException(

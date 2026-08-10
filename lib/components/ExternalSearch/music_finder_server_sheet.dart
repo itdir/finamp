@@ -171,7 +171,7 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
               onEditingComplete: _connect,
               decoration: InputDecoration(
                 labelText: localizations.musicFinderServerUrl,
-                hintText: "http://downloads.local:8088",
+                hintText: "http://127.0.0.1:8088",
                 border: const OutlineInputBorder(),
                 errorText: _error,
               ),
