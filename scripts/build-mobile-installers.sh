@@ -165,13 +165,15 @@ EOF
       DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
       CODE_SIGN_STYLE=Automatic \
       -allowProvisioningUpdates \
+      -allowProvisioningDeviceRegistration \
       archive
     xcodebuild \
       -exportArchive \
       -archivePath "$archive_path" \
       -exportOptionsPlist "$export_plist" \
       -exportPath "$export_path" \
-      -allowProvisioningUpdates
+      -allowProvisioningUpdates \
+      -allowProvisioningDeviceRegistration
   ) && build_ok=1
 
   mv -f "$pb_bak" "$pb"
@@ -226,16 +228,14 @@ Do NOT copy the .ipa via Finder and tap it — development IPAs will show
 "Unable to Install Finamp / Please try again later."
 
 With the phone USB-connected, on Dev MacBook:
-  xcrun devicectl device install app --device 00008020-0004484921F0002E \\
-    \$(mktemp -d)/Payload/Runner.app   # or use the commands below
-
-Easier:
-1. Plug in iPhone via USB; trust this Mac.
-2. Xcode → Window → Devices and Simulators → select iPhone → (+) under Installed Apps
+1. Xcode → Window → Devices and Simulators → select iPhone → (+) under Installed Apps
    → choose: $DIST_DIR/finamp-ios-development.ipa
-3. On iPhone: Settings → General → VPN & Device Management → trust your developer certificate.
+   OR:
+   TMP=\$(mktemp -d) && unzip -q "$DIST_DIR/finamp-ios-development.ipa" -d "\$TMP" \\
+     && xcrun devicectl device install app --device 00008020-0004484921F0002E "\$TMP/Payload/Runner.app"
+2. On iPhone: Settings → General → VPN & Device Management → trust your developer certificate.
 
-Or install live from source:
+Or install live from source (also registers the device for new bundle ids):
   flutter run --release -d 00008020-0004484921F0002E
 EOF
 }
