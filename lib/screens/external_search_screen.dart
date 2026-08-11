@@ -66,9 +66,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     final savedUrl =
         FinampSettingsHelper.finampSettings.musicFinderServerUrl?.trim();
     if (savedUrl == null || savedUrl.isEmpty) {
+      // Always allow entry via the skull button; prompt to connect.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          Navigator.of(context).pop();
+          _promptForServerOnEntry();
         }
       });
       return;
@@ -82,6 +83,18 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         _verifySavedServer(savedUrl);
       }
     });
+  }
+
+  /// First open with no saved Music Finder URL: show the connect sheet.
+  /// Leave External Search if the user dismisses without connecting.
+  Future<void> _promptForServerOnEntry() async {
+    await _openServerSheet(force: true);
+    if (!mounted) {
+      return;
+    }
+    if (!_isConnected) {
+      Navigator.of(context).pop();
+    }
   }
 
   void _onFieldChanged() {
@@ -291,17 +304,14 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     });
 
     try {
+      final candidates = _result?.candidates ?? const [];
       final addResult = await _musicFinderClient.addItems(
         baseUrl: _baseUrl,
         itemIds: [
-          for (var i = 0; i < (_result?.candidates.length ?? 0); i++)
-            if (_selectedItemIds.contains(
-              (_result!.candidates[i].id.isNotEmpty)
-                  ? _result!.candidates[i].id
-                  : "idx:$i",
-            ))
-              if (_result!.candidates[i].id.isNotEmpty)
-                _result!.candidates[i].id,
+          for (var i = 0; i < candidates.length; i++)
+            if (_selectedItemIds.contains(_candidateKey(candidates[i], i)) &&
+                candidates[i].id.isNotEmpty)
+              candidates[i].id,
         ],
       );
       if (!mounted) {
@@ -339,6 +349,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     Navigator.of(context).pop();
   }
 
+  String _candidateKey(MusicFinderCandidate c, int index) =>
+      c.id.isNotEmpty ? c.id : "idx:$index";
+
   void _toggleSelectAll(bool? select) {
     final candidates = _result?.candidates ?? const [];
     setState(() {
@@ -347,7 +360,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
           ..clear()
           ..addAll([
             for (var i = 0; i < candidates.length; i++)
-              candidates[i].id.isNotEmpty ? candidates[i].id : "idx:$i",
+              _candidateKey(candidates[i], i),
           ]);
       } else {
         _selectedItemIds.clear();
@@ -553,7 +566,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
               itemCount: candidates.length,
               itemBuilder: (context, index) {
                 final c = candidates[index];
-                final itemKey = c.id.isNotEmpty ? c.id : "idx:$index";
+                final itemKey = _candidateKey(c, index);
                 return CheckboxListTile(
                   key: ValueKey(itemKey),
                   value: _selectedItemIds.contains(itemKey),
@@ -594,11 +607,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     final localizations = AppLocalizations.of(context)!;
     final candidates = _result?.candidates ?? const [];
     final allSelected = candidates.isNotEmpty &&
-        List.generate(candidates.length, (i) {
-          final c = candidates[i];
-          final key = c.id.isNotEmpty ? c.id : "idx:$i";
-          return _selectedItemIds.contains(key);
-        }).every((v) => v);
+        List.generate(
+          candidates.length,
+          (i) => _selectedItemIds.contains(_candidateKey(candidates[i], i)),
+        ).every((v) => v);
     final someSelected = _selectedItemIds.isNotEmpty && !allSelected;
     final hasCandidates = candidates.isNotEmpty;
 

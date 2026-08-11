@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:hive/hive.dart';
 
-import '../models/finamp_models.dart';
 import '../screens/external_search_screen.dart';
-import '../services/finamp_settings_helper.dart';
 
 /// AppBar action that opens [ExternalSearchScreen].
 ///
-/// Hidden unless a Music Finder server URL has been configured in Settings.
+/// Always visible so the user can open External Search and connect a Music
+/// Finder server from there (or via Settings).
 class ExternalSearchButton extends StatelessWidget {
   const ExternalSearchButton({Key? key}) : super(key: key);
 
@@ -16,26 +14,18 @@ class ExternalSearchButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Box<FinampSettings>>(
-      valueListenable: FinampSettingsHelper.finampSettingsListener,
-      builder: (context, box, _) {
-        if (!FinampSettingsHelper.hasMusicFinderServer) {
-          return const SizedBox.shrink();
-        }
-        return IconButton(
-          // Use Image.asset (not ImageIcon) so black/white artwork is not
-          // flattened into a solid tinted glyph.
-          icon: Image.asset(
-            assetPath,
-            width: 24,
-            height: 24,
-            filterQuality: FilterQuality.medium,
-          ),
-          tooltip: AppLocalizations.of(context)!.externalSearch,
-          onPressed: () => Navigator.of(context)
-              .pushNamed(ExternalSearchScreen.routeName),
-        );
-      },
+    return IconButton(
+      // Use Image.asset (not ImageIcon) so black/white artwork is not
+      // flattened into a solid tinted glyph.
+      icon: Image.asset(
+        assetPath,
+        width: 24,
+        height: 24,
+        filterQuality: FilterQuality.medium,
+      ),
+      tooltip: AppLocalizations.of(context)!.externalSearch,
+      onPressed: () => Navigator.of(context)
+          .pushNamed(ExternalSearchScreen.routeName),
     );
   }
 }

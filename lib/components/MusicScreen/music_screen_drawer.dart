@@ -59,14 +59,13 @@ class MusicScreenDrawer extends StatelessWidget {
                         onTap: () => Navigator.of(context)
                             .pushNamed(DownloadsScreen.routeName),
                       ),
-                      if (FinampSettingsHelper.hasMusicFinderServer)
-                        ListTile(
-                          leading: const ExternalSearchLeadingIcon(),
-                          title: Text(
-                              AppLocalizations.of(context)!.externalSearch),
-                          onTap: () => Navigator.of(context)
-                              .pushNamed(ExternalSearchScreen.routeName),
-                        ),
+                      ListTile(
+                        leading: const ExternalSearchLeadingIcon(),
+                        title: Text(
+                            AppLocalizations.of(context)!.externalSearch),
+                        onTap: () => Navigator.of(context)
+                            .pushNamed(ExternalSearchScreen.routeName),
+                      ),
                       const OfflineModeSwitchListTile(),
                       const Divider(),
                     ],

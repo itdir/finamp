@@ -7,8 +7,8 @@ import '../../services/finamp_settings_helper.dart';
 import '../../services/music_finder_client.dart';
 import 'music_finder_server_sheet.dart';
 
-/// Settings row to configure Music Finder. External Search UI stays hidden
-/// until a URL is saved after a successful health check.
+/// Settings row to configure Music Finder. External Search can also prompt
+/// for a URL on first open until a successful health check saves one.
 ///
 /// The stored URL is never shown — only Configured / Not configured.
 /// The entry field is always empty (secret is never prefilled).
