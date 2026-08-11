@@ -4,6 +4,7 @@ import '../models/jellyfin_models.dart';
 import '../models/finamp_models.dart';
 import '../components/ArtistScreen/artist_download_button.dart';
 import '../components/MusicScreen/music_screen_tab_view.dart';
+import '../components/external_search_button.dart';
 import '../components/now_playing_bar.dart';
 import '../components/favourite_button.dart';
 import '../components/ArtistScreen/artist_play_button.dart';
@@ -33,7 +34,8 @@ class ArtistScreen extends StatelessWidget {
           if (artist.type != "MusicGenre") ArtistPlayButton(artist: artist),
           if (artist.type != "MusicGenre") ArtistShuffleButton(artist: artist), 
           if (artist.type != "MusicGenre") FavoriteButton(item: artist),
-          ArtistDownloadButton(artist: artist)
+          ArtistDownloadButton(artist: artist),
+          const ExternalSearchButton(),
         ],
       ),
       body: MusicScreenTabView(

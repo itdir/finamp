@@ -238,4 +238,17 @@ class FinampSettingsHelper {
     Hive.box<FinampSettings>("FinampSettings")
         .put("FinampSettings", finampSettingsTemp);
   }
+
+  static void setMusicFinderServerUrl(String? musicFinderServerUrl) {
+    FinampSettings finampSettingsTemp = finampSettings;
+    finampSettingsTemp.musicFinderServerUrl = musicFinderServerUrl;
+    Hive.box<FinampSettings>("FinampSettings")
+        .put("FinampSettings", finampSettingsTemp);
+  }
+
+  /// True when a Music Finder base URL is stored (set only after health check).
+  static bool get hasMusicFinderServer {
+    final url = finampSettings.musicFinderServerUrl?.trim();
+    return url != null && url.isNotEmpty;
+  }
 }

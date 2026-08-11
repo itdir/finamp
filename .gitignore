@@ -53,6 +53,10 @@ unlinked_spec.ds
 **/android/key.properties
 *.jks
 
+# Local mobile installer outputs / personal signing overrides
+/dist/
+ios/Flutter/Local.xcconfig
+
 # iOS/XCode related
 **/ios/**/*.mode1v3
 **/ios/**/*.mode2v3

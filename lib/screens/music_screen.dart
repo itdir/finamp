@@ -12,6 +12,7 @@ import '../components/MusicScreen/music_screen_tab_view.dart';
 import '../components/MusicScreen/music_screen_drawer.dart';
 import '../components/MusicScreen/sort_by_menu_button.dart';
 import '../components/MusicScreen/sort_order_button.dart';
+import '../components/external_search_button.dart';
 import '../components/now_playing_bar.dart';
 import '../components/error_snackbar.dart';
 import '../services/jellyfin_api_helper.dart';
@@ -250,6 +251,7 @@ class _MusicScreenState extends State<MusicScreen>
                                     !finampSettings.isFavourite),
                             tooltip: AppLocalizations.of(context)!.favourites,
                           ),
+                          const ExternalSearchButton(),
                           IconButton(
                             icon: const Icon(Icons.search),
                             onPressed: () => setState(() {

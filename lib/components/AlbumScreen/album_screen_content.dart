@@ -8,6 +8,7 @@ import 'package:get_it/get_it.dart';
 
 import '../../models/jellyfin_models.dart';
 import '../../services/finamp_settings_helper.dart';
+import '../../components/external_search_button.dart';
 import '../../components/favourite_button.dart';
 import 'album_screen_content_flexible_space_bar.dart';
 import 'delete_button.dart';
@@ -83,7 +84,8 @@ class _AlbumScreenContentState extends State<AlbumScreenContent> {
               if (GetIt.instance<DownloadsHelper>().isAlbumDownloaded(widget.parent.id))
                 DeleteButton(parent: widget.parent, items: widget.children),
               if (!FinampSettingsHelper.finampSettings.isOffline)
-                SyncAlbumOrPlaylistButton(parent: widget.parent, items: widget.children)
+                SyncAlbumOrPlaylistButton(parent: widget.parent, items: widget.children),
+              const ExternalSearchButton(),
             ],
           ),
           if (widget.children.length > 1 &&

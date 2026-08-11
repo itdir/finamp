@@ -32,6 +32,7 @@ import 'screens/audio_service_settings_screen.dart';
 import 'screens/downloads_error_screen.dart';
 import 'screens/downloads_screen.dart';
 import 'screens/downloads_settings_screen.dart';
+import 'screens/external_search_screen.dart';
 import 'screens/language_selection_screen.dart';
 import 'screens/layout_settings_screen.dart';
 import 'screens/logs_screen.dart';
@@ -319,6 +320,8 @@ class Finamp extends StatelessWidget {
                           const DownloadsScreen(),
                       DownloadsErrorScreen.routeName: (context) =>
                           const DownloadsErrorScreen(),
+                      ExternalSearchScreen.routeName: (context) =>
+                          const ExternalSearchScreen(),
                       LogsScreen.routeName: (context) => const LogsScreen(),
                       SettingsScreen.routeName: (context) =>
                           const SettingsScreen(),

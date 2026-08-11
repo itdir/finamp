@@ -1,0 +1,5 @@
+// Copy to Local.xcconfig (gitignored) or let scripts/build-mobile-installers.sh generate it.
+// Personal Apple Development team for Brian Perkins.
+// Bundle id is patched on the Runner target only by the installer script —
+// do not set PRODUCT_BUNDLE_IDENTIFIER here (breaks CocoaPods framework ids).
+DEVELOPMENT_TEAM=F3E25E64U6
