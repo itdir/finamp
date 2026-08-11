@@ -584,9 +584,9 @@
   "@sync": {},
   "about": "About Finamp",
   "@about": {},
-  "externalSearch": "External Search",
+  "externalSearch": "Music Finder",
   "@externalSearch": {
-    "description": "Title and tooltip for the external song/artist/album search screen"
+    "description": "Title and tooltip for the Music Finder (skull) entry points"
   },
   "song": "Song",
   "@song": {
@@ -642,29 +642,9 @@
   "@musicFinderHideUrl": {
     "description": "Tooltip to obscure the Music Finder URL field while typing"
   },
-  "musicFinderServerConfigured": "Configured (URL hidden)",
-  "@musicFinderServerConfigured": {
-    "description": "Settings subtitle when a Music Finder URL is saved (does not show the URL)"
-  },
-  "musicFinderServerNotConfigured": "Not configured",
-  "@musicFinderServerNotConfigured": {
-    "description": "Settings subtitle when Music Finder is not set up"
-  },
-  "musicFinderServerSaved": "Music Finder server saved",
-  "@musicFinderServerSaved": {
-    "description": "Snackbar after a successful Music Finder connect from Settings"
-  },
-  "musicFinderServerCleared": "Music Finder server cleared",
-  "@musicFinderServerCleared": {
-    "description": "Snackbar after clearing the Music Finder URL"
-  },
   "musicFinderServerUnavailable": "Music Finder server is unreachable",
   "@musicFinderServerUnavailable": {
     "description": "Shown when External Search cannot reach the configured server"
-  },
-  "musicFinderClearServer": "Clear server",
-  "@musicFinderClearServer": {
-    "description": "Tooltip for clearing the Music Finder URL in Settings"
   },
   "searchingButtonLabel": "Searching...",
   "@searchingButtonLabel": {

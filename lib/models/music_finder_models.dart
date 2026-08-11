@@ -96,32 +96,33 @@ class MusicFinderIdentity {
 class MusicFinderCandidate {
   const MusicFinderCandidate({
     required this.title,
-    required this.id,
+    required this.url,
     this.score = 0.0,
   });
 
   final String title;
-  /// Opaque server item id used when adding to the library.
-  final String id;
+  /// Magnet link (`magnet:…`) or other URL used when adding to the library.
+  final String url;
   final double score;
 
   factory MusicFinderCandidate.fromJson(Map<String, dynamic> json) {
     return MusicFinderCandidate(
       title: json["title"]?.toString() ?? "",
-      id: _itemIdFromJson(json),
+      url: _urlFromJson(json),
       score: (json["score"] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
 
-/// Prefer neutral `id`; accept legacy wire field so undeployed servers still work.
-String _itemIdFromJson(Map<String, dynamic> json) {
-  final id = json["id"]?.toString() ?? "";
-  if (id.isNotEmpty) {
-    return id;
+/// Prefer `url`; accept legacy wire fields so older Music Finder builds work.
+String _urlFromJson(Map<String, dynamic> json) {
+  for (final key in ["url", "magnet", "id"]) {
+    final value = json[key]?.toString() ?? "";
+    if (value.isNotEmpty) {
+      return value;
+    }
   }
-  final legacy = json["magnet"]?.toString() ?? "";
-  return legacy;
+  return "";
 }
 
 class MusicFinderSearchResult {
@@ -174,18 +175,18 @@ class MusicFinderSearchResult {
 
 class MusicFinderAddItemResult {
   const MusicFinderAddItemResult({
-    required this.id,
+    required this.url,
     required this.ok,
     this.detail = "",
   });
 
-  final String id;
+  final String url;
   final bool ok;
   final String detail;
 
   factory MusicFinderAddItemResult.fromJson(Map<String, dynamic> json) {
     return MusicFinderAddItemResult(
-      id: _itemIdFromJson(json),
+      url: _urlFromJson(json),
       ok: json["ok"] == true,
       detail: json["detail"]?.toString() ?? "",
     );

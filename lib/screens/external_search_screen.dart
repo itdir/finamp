@@ -41,7 +41,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
 
   MusicFinderSearchResult? _result;
   MusicFinderAddResult? _addResult;
-  final Set<String> _selectedItemIds = {};
+  final Set<String> _selectedUrls = {};
 
   String get _baseUrl => _serverUrl?.trim() ?? "";
 
@@ -54,7 +54,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   bool get _canAdd =>
-      _isConnected && !_isAdding && _selectedItemIds.isNotEmpty;
+      _isConnected && !_isAdding && _selectedUrls.isNotEmpty;
 
   @override
   void initState() {
@@ -139,7 +139,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       _isConnecting = false;
       _result = null;
       _addResult = null;
-      _selectedItemIds.clear();
+      _selectedUrls.clear();
       _selectedArtistId = null;
     });
     FinampSettingsHelper.setMusicFinderServerUrl(null);
@@ -206,7 +206,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         _searchError = null;
         _result = null;
         _addResult = null;
-        _selectedItemIds.clear();
+        _selectedUrls.clear();
       });
       FinampSettingsHelper.setMusicFinderServerUrl(connectedUrl);
       return;
@@ -239,7 +239,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       _isConnected = false;
       _result = null;
       _addResult = null;
-      _selectedItemIds.clear();
+      _selectedUrls.clear();
       _selectedArtistId = null;
     });
     await _leaveBecauseServerUnavailable();
@@ -259,7 +259,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       _isSearching = true;
       _searchError = null;
       _addResult = null;
-      _selectedItemIds.clear();
+      _selectedUrls.clear();
       if (artistId != null) {
         _selectedArtistId = artistId;
       }
@@ -307,11 +307,11 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       final candidates = _result?.candidates ?? const [];
       final addResult = await _musicFinderClient.addItems(
         baseUrl: _baseUrl,
-        itemIds: [
+        urls: [
           for (var i = 0; i < candidates.length; i++)
-            if (_selectedItemIds.contains(_candidateKey(candidates[i], i)) &&
-                candidates[i].id.isNotEmpty)
-              candidates[i].id,
+            if (_selectedUrls.contains(_candidateKey(candidates[i], i)) &&
+                candidates[i].url.isNotEmpty)
+              candidates[i].url,
         ],
       );
       if (!mounted) {
@@ -350,20 +350,20 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   String _candidateKey(MusicFinderCandidate c, int index) =>
-      c.id.isNotEmpty ? c.id : "idx:$index";
+      c.url.isNotEmpty ? c.url : "idx:$index";
 
   void _toggleSelectAll(bool? select) {
     final candidates = _result?.candidates ?? const [];
     setState(() {
       if (select == true) {
-        _selectedItemIds
+        _selectedUrls
           ..clear()
           ..addAll([
             for (var i = 0; i < candidates.length; i++)
               _candidateKey(candidates[i], i),
           ]);
       } else {
-        _selectedItemIds.clear();
+        _selectedUrls.clear();
       }
     });
   }
@@ -495,7 +495,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                       ),
                     ),
                     Text(
-                      "${_selectedItemIds.length}/${candidates.length}",
+                      "${_selectedUrls.length}/${candidates.length}",
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Checkbox(
@@ -569,7 +569,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                 final itemKey = _candidateKey(c, index);
                 return CheckboxListTile(
                   key: ValueKey(itemKey),
-                  value: _selectedItemIds.contains(itemKey),
+                  value: _selectedUrls.contains(itemKey),
                   dense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                   onChanged: _isAdding
@@ -577,9 +577,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
                       : (checked) {
                           setState(() {
                             if (checked == true) {
-                              _selectedItemIds.add(itemKey);
+                              _selectedUrls.add(itemKey);
                             } else {
-                              _selectedItemIds.remove(itemKey);
+                              _selectedUrls.remove(itemKey);
                             }
                           });
                         },
@@ -609,9 +609,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     final allSelected = candidates.isNotEmpty &&
         List.generate(
           candidates.length,
-          (i) => _selectedItemIds.contains(_candidateKey(candidates[i], i)),
+          (i) => _selectedUrls.contains(_candidateKey(candidates[i], i)),
         ).every((v) => v);
-    final someSelected = _selectedItemIds.isNotEmpty && !allSelected;
+    final someSelected = _selectedUrls.isNotEmpty && !allSelected;
     final hasCandidates = candidates.isNotEmpty;
 
     return Scaffold(
