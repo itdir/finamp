@@ -27,6 +27,10 @@
   "@urlTrailingSlash": {
     "description": "Error message that shows when the user submits a server URL that ends with a trailing slash (for example, http://0.0.0.0/)"
   },
+  "urlUserInfoTypo": "Hostname looks wrong (@ instead of .). Use http://jellyfin.example.ts.net:8096 — not jellyfin@example…",
+  "@urlUserInfoTypo": {
+    "description": "Error when the server URL contains user@host, usually a MagicDNS typo where @ was used instead of ."
+  },
   "username": "Username",
   "@username": {},
   "password": "Password",

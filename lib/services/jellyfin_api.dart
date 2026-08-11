@@ -381,10 +381,16 @@ abstract class JellyfinApi extends ChopperService {
           Uri baseUri = jellyfinApiHelper.baseUrlTemp ??
               Uri.parse(finampUserHelper.currentUser!.baseUrl);
 
-          // Add the request path on to the baseUrl
-          baseUri = baseUri.replace(
-              pathSegments:
-                  baseUri.pathSegments.followedBy(request.uri.pathSegments));
+          // Join base + request path without Uri.replace(pathSegments:), which
+          // is easy to misuse and harder to reason about for opaque hosts.
+          final base = baseUri.toString().replaceAll(RegExp(r'/+$'), '');
+          final reqPath = request.uri.path.startsWith('/')
+              ? request.uri.path
+              : '/${request.uri.path}';
+          baseUri = Uri.parse('$base$reqPath');
+          if (request.uri.hasQuery) {
+            baseUri = baseUri.replace(query: request.uri.query);
+          }
 
           return request.copyWith(
             uri: baseUri,
