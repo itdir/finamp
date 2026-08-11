@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 import '../../screens/logs_screen.dart';
 import '../../screens/view_selector.dart';
 import '../../services/jellyfin_api_helper.dart';
+import '../../services/jellyfin_server_url.dart';
 import '../error_snackbar.dart';
 
 class PrivateUserSignIn extends StatefulWidget {
@@ -70,20 +71,23 @@ class _PrivateUserSignInState extends State<PrivateUserSignIn> {
                       textInputAction: TextInputAction.next,
                       onEditingComplete: () => node.nextFocus(),
                       validator: (value) {
-                        if (value?.isEmpty == true) {
-                          return AppLocalizations.of(context)!.emptyServerUrl;
-                        }
-                        if (!value!.trim().startsWith("http://") &&
-                            !value.trim().startsWith("https://")) {
-                          return AppLocalizations.of(context)!
-                              .urlStartWithHttps;
-                        }
-                        if (value.trim().endsWith("/")) {
-                          return AppLocalizations.of(context)!.urlTrailingSlash;
-                        }
-                        return null;
+                        final localizations = AppLocalizations.of(context)!;
+                        // Normalize common jellyfin@tailnet → jellyfin.tailnet typo
+                        // before validating so paste mistakes still work.
+                        final normalized = value == null
+                            ? value
+                            : JellyfinServerUrl.normalize(value);
+                        return JellyfinServerUrl.validate(
+                          normalized,
+                          empty: localizations.emptyServerUrl,
+                          mustStartWithHttp: localizations.urlStartWithHttps,
+                          noTrailingSlash: localizations.urlTrailingSlash,
+                          userInfoTypo: localizations.urlUserInfoTypo,
+                        );
                       },
-                      onSaved: (newValue) => baseUrl = newValue,
+                      onSaved: (newValue) => baseUrl = newValue == null
+                          ? newValue
+                          : JellyfinServerUrl.normalize(newValue),
                     ),
                   ),
                   Row(
@@ -166,8 +170,8 @@ class _PrivateUserSignInState extends State<PrivateUserSignIn> {
       required BuildContext context}) async {
     JellyfinApiHelper jellyfinApiHelper = GetIt.instance<JellyfinApiHelper>();
 
-    // We trim the base url in case the user accidentally added some trailing whitespce
-    baseUrl = baseUrl.trim();
+    // We trim/normalize the base url (fixes jellyfin@tailnet → jellyfin.tailnet)
+    baseUrl = JellyfinServerUrl.normalize(baseUrl);
 
     jellyfinApiHelper.baseUrlTemp = Uri.parse(baseUrl);
 
