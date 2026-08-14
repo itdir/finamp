@@ -31,6 +31,9 @@ class SideloadUpdateChannel(
     }
 
     private var pendingResult: MethodChannel.Result? = null
+
+    /** When [pendingResult] was parked, so Dart can tell how long it has waited. */
+    private var pendingResultAt: Long = 0L
     private var receiverRegistered = false
 
     private val installReceiver = object : BroadcastReceiver() {
@@ -40,6 +43,7 @@ class SideloadUpdateChannel(
             Log.i(TAG, "Install status=$status message=$message")
             val result = pendingResult
             pendingResult = null
+            pendingResultAt = 0L
             when (status) {
                 PackageInstaller.STATUS_SUCCESS -> {
                     result?.success(mapOf("ok" to true, "status" to "success"))
@@ -146,13 +150,27 @@ class SideloadUpdateChannel(
                     return
                 }
                 pendingResult = result
+                pendingResultAt = System.currentTimeMillis()
                 try {
                     installApk(File(path), requireUserAction)
                 } catch (e: Exception) {
                     pendingResult = null
+                    pendingResultAt = 0L
                     Log.e(TAG, "installApk failed", e)
                     result.error("INSTALL_ERROR", e.message, null)
                 }
+            }
+            "cancelPendingInstall" -> {
+                // Dart timed out waiting for the install broadcast. Drop the
+                // parked Result without replying to it — that call is already
+                // abandoned — so the next installApk is not rejected as BUSY.
+                val waited = if (pendingResultAt == 0L) 0 else System.currentTimeMillis() - pendingResultAt
+                if (pendingResult != null) {
+                    Log.w(TAG, "Dropping install result parked for ${waited}ms with no status broadcast")
+                }
+                pendingResult = null
+                pendingResultAt = 0L
+                result.success(null)
             }
             "getLastWorkerStatus" -> {
                 result.success(SideloadPrefs.readStatus(context))

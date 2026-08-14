@@ -115,6 +115,24 @@ button appears only then — it is not a setup guide for SideStore itself.
 Weekly / 7-day personal cert refresh is still required; version OTA does not
 refresh code signing.
 
+## Troubleshooting
+
+### “Update check already running”
+
+A previous check started and never finished. Until build **134**, that could
+happen forever: the APK body download had no stall timeout, and
+`PackageInstaller` status waits had no deadline, so the in-memory busy lock
+never cleared.
+
+**Immediate recovery on an older build:** force-quit Finamp (swipe away from
+recents), reopen, then tap **Check for updates** again on Wi‑Fi. The lock is
+in memory only.
+
+From **0.9.25-sideload.8+134** onward: a stalled download fails after 60s
+without progress, installs time out after 5 minutes, and a stale busy lock
+is cleared after 40 minutes. The Updates screen also shows download percent
+for the large Profile APK.
+
 ## Public fork + Release assets
 
 `itdir/finamp` is a **public** fork of `finamp-app/finamp`. Phones can download

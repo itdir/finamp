@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:finamp/models/finamp_models.dart';
 import 'package:finamp/services/finamp_settings_helper.dart';
 import 'package:finamp/services/music_player_background_task.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import 'package:http/http.dart' as http;
@@ -133,9 +134,41 @@ class SideloadUpdateService {
   SideloadCheckResult? lastResult;
   String? lastError;
   DateTime? lastCheckAt;
-  bool _busy = false;
 
-  bool get isBusy => _busy;
+  /// When the in-flight check started, or null when idle.
+  ///
+  /// A plain bool could only be cleared by the `finally` of the run that set
+  /// it, so any hang left the user with "Update check already running" until
+  /// they force-quit the app. The individual steps are now bounded, and this
+  /// timestamp is the backstop if one still gets stuck.
+  DateTime? _busySince;
+
+  /// Longest a check can hold the lock: the download deadline plus the install
+  /// wait, with room to spare.
+  static const _busyMaxAge = Duration(minutes: 40);
+
+  /// No progress on the APK body for this long means the connection died.
+  static const _downloadStallTimeout = Duration(seconds: 60);
+
+  /// Whole-download deadline. The APK is large, so this is generous.
+  static const _downloadDeadline = Duration(minutes: 30);
+
+  /// How long to wait for Android to report install status before giving up.
+  static const _installTimeout = Duration(minutes: 5);
+
+  bool get isBusy {
+    final since = _busySince;
+    if (since == null) return false;
+    if (DateTime.now().difference(since) >= _busyMaxAge) {
+      _log.warning('Clearing a stale busy lock held since $since');
+      _busySince = null;
+      return false;
+    }
+    return true;
+  }
+
+  /// Fraction of the APK downloaded (0..1), or null when not downloading.
+  final ValueNotifier<double?> downloadProgress = ValueNotifier<double?>(null);
 
   static String get manifestUrl {
     final override = FinampSettingsHelper.finampSettings.sideloadManifestUrl;
@@ -298,13 +331,14 @@ class SideloadUpdateService {
     bool installIfReady = false,
     bool forceMetered = false,
   }) async {
-    if (_busy) {
+    if (isBusy) {
       return SideloadCheckResult(
         outcome: SideloadCheckOutcome.error,
-        message: 'Update check already running',
+        message: 'Update check already running — wait for the download to finish, '
+            'or force-quit Finamp and try again',
       );
     }
-    _busy = true;
+    _busySince = DateTime.now();
     lastError = null;
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -449,7 +483,8 @@ class SideloadUpdateService {
       lastCheckAt = DateTime.now();
       return r;
     } finally {
-      _busy = false;
+      _busySince = null;
+      downloadProgress.value = null;
       unawaited(syncNativeSchedule(playing: _isPlaying()));
     }
   }
@@ -505,15 +540,38 @@ class SideloadUpdateService {
     }
 
     final request = http.Request('GET', Uri.parse(url));
-    final streamed = await request.send().timeout(const Duration(minutes: 30));
+    final streamed = await request.send().timeout(const Duration(seconds: 60));
     if (streamed.statusCode != 200) {
       throw StateError('APK HTTP ${streamed.statusCode}');
     }
+
+    // The body needs its own bound. Timing out request.send() only covers the
+    // response headers, so a connection that dies mid-transfer used to hang
+    // here forever and wedge the busy lock.
+    final expectedBytes = manifest.androidSizeBytes ?? 0;
     final sink = file.openWrite();
+    var received = 0;
     try {
-      await streamed.stream.pipe(sink);
+      final body = streamed.stream.timeout(
+        _downloadStallTimeout,
+        onTimeout: (sink) => sink.addError(
+          TimeoutException('Download stalled with $received of $expectedBytes bytes', _downloadStallTimeout),
+        ),
+      );
+      final deadline = DateTime.now().add(_downloadDeadline);
+      await for (final chunk in body) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (expectedBytes > 0) downloadProgress.value = received / expectedBytes;
+        if (DateTime.now().isAfter(deadline)) {
+          throw TimeoutException('Download exceeded ${_downloadDeadline.inMinutes} minutes', _downloadDeadline);
+        }
+      }
+    } on TimeoutException catch (e) {
+      throw StateError('Download stopped responding — check the connection and try again ($e)');
     } finally {
       await sink.close();
+      downloadProgress.value = null;
     }
 
     final digest = await sha256.bind(file.openRead()).first;
@@ -539,17 +597,44 @@ class SideloadUpdateService {
     required bool requireUserAction,
   }) async {
     try {
-      final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>('installApk', {
-        'path': path,
-        'requireUserAction': requireUserAction,
-      });
+      // The native side parks this call until PackageInstaller broadcasts a
+      // status. If that broadcast never arrives — process death, a dismissed
+      // system dialog, an abandoned session — the future never completes, so
+      // bound it and release the native slot on the way out.
+      final raw = await _channel
+          .invokeMethod<Map<dynamic, dynamic>>('installApk', {
+            'path': path,
+            'requireUserAction': requireUserAction,
+          })
+          .timeout(_installTimeout);
       return raw?.map((k, v) => MapEntry(k.toString(), v)) ?? {'ok': false};
+    } on TimeoutException {
+      await _cancelPendingNativeInstall();
+      _log.warning('installApk did not report status within ${_installTimeout.inMinutes} minutes');
+      return {
+        'ok': false,
+        'status': 'timeout',
+        'message': 'Android never reported the install result. '
+            'Check Settings → Apps for a pending install, then try again.',
+      };
     } on PlatformException catch (e) {
       return {
         'ok': false,
         'status': e.code,
         'message': e.message ?? e.code,
       };
+    }
+  }
+
+  /// Clears the native pending-install slot so the next attempt is not
+  /// rejected with `BUSY` by a call we have already given up on.
+  Future<void> _cancelPendingNativeInstall() async {
+    try {
+      await _channel.invokeMethod<void>('cancelPendingInstall');
+    } on MissingPluginException {
+      // Older native side without this method; nothing to release.
+    } catch (e) {
+      _log.warning('cancelPendingInstall failed', e);
     }
   }
 
@@ -564,13 +649,14 @@ class SideloadUpdateService {
         message: 'Finish setup is only needed on Android',
       );
     }
-    if (_busy) {
+    if (isBusy) {
       return SideloadCheckResult(
         outcome: SideloadCheckOutcome.error,
-        message: 'Update check already running',
+        message: 'Update check already running — wait for the download to finish, '
+            'or force-quit Finamp and try again',
       );
     }
-    _busy = true;
+    _busySince = DateTime.now();
     lastError = null;
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -651,7 +737,8 @@ class SideloadUpdateService {
       lastCheckAt = DateTime.now();
       return r;
     } finally {
-      _busy = false;
+      _busySince = null;
+      downloadProgress.value = null;
       unawaited(syncNativeSchedule(playing: _isPlaying()));
     }
   }

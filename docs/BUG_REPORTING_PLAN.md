@@ -1,6 +1,7 @@
 # Plan — basic in-app bug reporting
 
-Status: **proposed** (not implemented). Fork-only feature for `itdir/finamp`.
+Status: **steps 1–2 implemented** (log slice, diagnostics summary, metadata
+redaction). UI (steps 3–5) not started. Fork-only feature for `itdir/finamp`.
 
 ## Why
 
