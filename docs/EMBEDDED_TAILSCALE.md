@@ -68,6 +68,20 @@ Exported logs record the chosen path at `INFO` — look for
 logged. Profile/Release builds drop `FINE`, so diagnostics for this path must
 be logged at `INFO` or above.
 
+**Tailnet service VIPs need IPv4.** If the Jellyfin address is a Tailscale
+*service* (a VIP advertised by a node, not the node's own MagicDNS name), the
+userspace stack cannot route it over IPv6: dials to the `fd7a:…` address fail
+with `no route to host` while the `100.x` address works. Go tries IPv6 first, so
+the same host appears to fail and succeed at random. Use the service's IPv4
+address in the Public field until this is resolved automatically.
+
+**Requests never trigger enrollment.** `FinampHttpClient` calls
+`ensureRunning(allowEnroll: false)` with an 8s budget, so a queued request can
+resume a dropped node but can never sit behind a control-plane registration —
+that took ~30s and failed while the node was already Running, stalling every
+request in the app. `ensureRunning` also refreshes live status first, because
+the cached status only advances when `up()` / `refreshStatus()` runs.
+
 When the toggle is on, app launch starts `EmbeddedTailscaleService.up()` in the
 background so a slow control-plane connection cannot delay the first screen.
 Persisted credentials resume first; the stored auth key is used only if resume

@@ -44,23 +44,38 @@ class EmbeddedTailscaleService {
 
   /// Resume tsnet if the node dropped (common after Wi‑Fi ↔ cellular).
   ///
-  /// Concurrent callers share one in-flight attempt.
-  static Future<bool> ensureRunning({Duration timeout = const Duration(seconds: 12)}) {
+  /// Concurrent callers share one in-flight attempt. Callers on a latency
+  /// path (an HTTP request waiting to be sent) should pass `allowEnroll: false`
+  /// so a stalled control-plane registration cannot block them; enrollment
+  /// belongs to startup and Settings → Embedded Tailscale.
+  static Future<bool> ensureRunning({Duration timeout = const Duration(seconds: 12), bool allowEnroll = true}) {
     if (isRunning) return Future.value(true);
-    return _ensureRunningInFlight ??= _ensureRunningBody(timeout: timeout).whenComplete(() {
+    return _ensureRunningInFlight ??= _ensureRunningBody(timeout: timeout, allowEnroll: allowEnroll).whenComplete(() {
       _ensureRunningInFlight = null;
     });
   }
 
-  static Future<bool> _ensureRunningBody({required Duration timeout}) async {
+  static Future<bool> _ensureRunningBody({required Duration timeout, required bool allowEnroll}) async {
     if (isRunning) return true;
+    // [_lastStatus] only advances when up() / refreshStatus() runs, so it can
+    // still say "not running" well after the node came up. Ask the runtime
+    // before paying for a bring-up.
     try {
-      await up();
+      await refreshStatus();
+    } catch (_) {}
+    if (isRunning) return true;
+
+    final deadline = DateTime.now().add(timeout);
+    try {
+      // The shared up() future is not cancellable, so bound the wait instead:
+      // a slow bring-up must not hold every queued request behind it.
+      await up(resumeOnly: !allowEnroll).timeout(timeout);
+    } on TimeoutException {
+      _log.warning('ensureRunning: up() still pending after ${timeout.inSeconds}s');
     } catch (e, st) {
       _log.warning('ensureRunning up() failed', e, st);
     }
     if (isRunning) return true;
-    final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline) && !isRunning) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       try {
@@ -100,6 +115,7 @@ class EmbeddedTailscaleService {
     String hostname = 'finamp',
     bool ephemeral = false,
     bool forceEnroll = false,
+    bool resumeOnly = false,
   }) {
     final inFlight = _upInFlight;
     if (inFlight != null) {
@@ -108,8 +124,14 @@ class EmbeddedTailscaleService {
     }
 
     late final Future<TailscaleStatus> operation;
-    operation = _upBody(authKey: authKey, hostname: hostname, ephemeral: ephemeral, forceEnroll: forceEnroll)
-        .whenComplete(() {
+    operation =
+        _upBody(
+          authKey: authKey,
+          hostname: hostname,
+          ephemeral: ephemeral,
+          forceEnroll: forceEnroll,
+          resumeOnly: resumeOnly,
+        ).whenComplete(() {
           if (identical(_upInFlight, operation)) {
             _upInFlight = null;
           }
@@ -123,6 +145,7 @@ class EmbeddedTailscaleService {
     required String hostname,
     required bool ephemeral,
     required bool forceEnroll,
+    bool resumeOnly = false,
   }) async {
     await ensureInitialized();
     _lastError = null;
@@ -142,8 +165,17 @@ class EmbeddedTailscaleService {
           // needsMachineAuth or other stable non-running state
           return resumed;
         }
+        if (resumeOnly) {
+          _log.info('Resume reached needsLogin; skipping enrollment on a latency-sensitive path');
+          return resumed;
+        }
         _log.info('Resume reached needsLogin; will enroll with auth key if available');
       }
+    }
+
+    if (resumeOnly) {
+      _lastStatus ??= TailscaleStatus.stopped;
+      return _lastStatus!;
     }
 
     if (key == null || key.isEmpty) {

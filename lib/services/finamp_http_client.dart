@@ -71,7 +71,9 @@ class FinampHttpClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (_useEmbeddedTs && looksLikeTailnetHost(request.url) && !EmbeddedTailscaleService.isRunning) {
-      await EmbeddedTailscaleService.ensureRunning();
+      // Resume only: enrolling with the control plane can take ~30s, and every
+      // queued request would wait behind it. Startup and Settings own that.
+      await EmbeddedTailscaleService.ensureRunning(timeout: const Duration(seconds: 8), allowEnroll: false);
     }
     if (_useEmbeddedTs && !EmbeddedTailscaleService.isRunning && looksLikeTailnetHost(request.url)) {
       _log.warning(
