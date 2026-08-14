@@ -39,9 +39,34 @@ MagicDNS / `100.x`), those calls stay on the **main isolate** so they use
 load.
 
 **Not routed through FinampHttpClient** (OS / media stacks): streaming playback
-(`just_audio` URI fetch) and `background_downloader` file downloads. Prefer
-LAN or a reachable public URL for those until a dedicated tsnet media path
-exists; downloaded tracks still play offline.
+(`just_audio` → native AVPlayer / ExoPlayer HTTP) and `background_downloader`
+file downloads. Those stacks cannot use the Dart userspace Tailscale client, so
+MagicDNS hostnames often fail with DNS errors (`-1003` on iOS) even while
+Chopper API calls succeed through tsnet.
+
+**Streaming while Embedded Tailscale is enabled:** Finamp builds remote
+`AudioSource` URIs from the **Public** Jellyfin address (`publicAddress`), not
+from `baseURL` (which may still prefer Local/MagicDNS for API).
+
+When that address is tailnet-only (`*.ts.net` or `100.64.0.0/10`), the URI is
+rewritten to a **loopback media proxy** — `TailscaleMediaProxy` binds an HTTP
+server on `127.0.0.1` (random port, random per-run secret path segment) and
+replays each request over `Tailscale.instance.http.client`. `Range` headers and
+`206` responses pass through unchanged so seeking works, and HLS playlists
+returned for transcoded streams are rewritten so their segment URLs point back
+at the proxy. Requests are only replayed when the upstream host is tailnet-only
+and the secret matches; the proxy stops when the toggle is turned off.
+
+A plain internet-reachable Public URL (reverse proxy / tunnel hostname) skips
+the proxy and is handed to the player directly. Downloaded tracks continue to
+play from disk. Already-loaded remote queues rebuild when the effective playback
+address class changes (Tailscale toggle, public address, or base URL).
+
+Exported logs record the chosen path at `INFO` — look for
+`Stream audio source: loopback proxy for tailnet public address` or
+`Stream audio source: direct public address`. The URL and token are never
+logged. Profile/Release builds drop `FINE`, so diagnostics for this path must
+be logged at `INFO` or above.
 
 When the toggle is on, app launch starts `EmbeddedTailscaleService.up()` in the
 background so a slow control-plane connection cannot delay the first screen.
@@ -112,9 +137,13 @@ flutter run
   `useEmbeddedTailscale` is `@HiveField(154)`; legacy plaintext
   `musicFinderServerUrl` was `@HiveField(155)` and is cleared after migration
   into secure storage. Music Finder HTTP uses `FinampHttpClient` (tsnet).
-- Audio streaming (`just_audio`) may still use the platform HTTP stack; if
-  streams fail over MagicDNS while API works, a follow-up must route media
-  fetches through the same client.
+- Audio streaming uses the platform HTTP stack. With Embedded Tailscale on,
+  streams use the Public address, replayed through the loopback media proxy
+  (`lib/services/tailscale_media_proxy.dart`) when that address is tailnet-only.
+  The proxy runs on the main isolate because tsnet's `http.Client` is not usable
+  from background isolates.
+- `background_downloader` file downloads still use the OS stack directly and are
+  not proxied, so downloads from a tailnet-only host remain unsupported.
 - Not proposed to upstream until device-tested and package:tailscale reviewed
   for key storage.
 

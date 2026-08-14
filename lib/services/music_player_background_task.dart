@@ -26,7 +26,9 @@ import 'package:logging/logging.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'android_auto_helper.dart';
+import 'finamp_http_client.dart';
 import 'finamp_settings_helper.dart';
+import 'tailscale_media_proxy.dart';
 import 'ios_helpers.dart';
 import 'metadata_provider.dart';
 
@@ -1365,7 +1367,18 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
     // 0.18), the value would be wrong if changed while a track was playing since
     // Hive is bad at multi-isolate stuff.
 
-    final parsedBaseUrl = Uri.parse(finampUserHelper.currentUser!.baseURL);
+    // just_audio hands the URI to the platform media stack (AVPlayer /
+    // ExoPlayer). That stack does not use FinampHttpClient / embedded tsnet, so
+    // MagicDNS / home-only hostnames fail with DNS errors while Chopper API
+    // calls still succeed. When Embedded Tailscale is on, stream from the
+    // configured public address (OS-reachable when it is a real public
+    // hostname) instead of baseURL, and replay tailnet-only hosts through the
+    // loopback proxy below.
+    final user = finampUserHelper.currentUser!;
+    final useEmbeddedTailscale = FinampSettingsHelper.finampSettings.useEmbeddedTailscale;
+    final streamBaseUrl = useEmbeddedTailscale ? user.publicAddress : user.baseURL;
+
+    final parsedBaseUrl = Uri.parse(streamBaseUrl);
 
     List<String> builtPath = List.from(parsedBaseUrl.pathSegments);
 
@@ -1405,7 +1418,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
       builtPath.addAll(["Items", mediaItem.extras!["itemJson"]["Id"] as String, "File"]);
     }
 
-    return Uri(
+    final directUri = Uri(
       host: parsedBaseUrl.host,
       port: parsedBaseUrl.port,
       scheme: parsedBaseUrl.scheme,
@@ -1413,6 +1426,32 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
       pathSegments: builtPath,
       queryParameters: queryParameters,
     );
+
+    // Log the address class only (never the URL or token) so exported logs show
+    // which path the native player was handed.
+    final addressClass = useEmbeddedTailscale
+        ? 'public'
+        : (user.isLocal && user.preferLocalNetwork ? 'local' : 'public');
+
+    if (useEmbeddedTailscale && FinampHttpClient.looksLikeTailnetHost(directUri)) {
+      if (await TailscaleMediaProxy.instance.ensureStarted()) {
+        final proxied = TailscaleMediaProxy.instance.proxyUri(directUri);
+        if (proxied != null) {
+          _audioServiceBackgroundTaskLogger.info(
+            'Stream audio source: loopback proxy for tailnet $addressClass address',
+          );
+          return proxied;
+        }
+      }
+      _audioServiceBackgroundTaskLogger.warning(
+        'Stream audio source: tailnet $addressClass address without a loopback proxy; '
+        'the native player cannot resolve MagicDNS and playback will fail',
+      );
+      return directUri;
+    }
+
+    _audioServiceBackgroundTaskLogger.info('Stream audio source: direct $addressClass address');
+    return directUri;
   }
 
   @override
