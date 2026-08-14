@@ -68,12 +68,14 @@ Exported logs record the chosen path at `INFO` — look for
 logged. Profile/Release builds drop `FINE`, so diagnostics for this path must
 be logged at `INFO` or above.
 
-**Tailnet service VIPs need IPv4.** If the Jellyfin address is a Tailscale
-*service* (a VIP advertised by a node, not the node's own MagicDNS name), the
-userspace stack cannot route it over IPv6: dials to the `fd7a:…` address fail
-with `no route to host` while the `100.x` address works. Go tries IPv6 first, so
-the same host appears to fail and succeed at random. Use the service's IPv4
-address in the Public field until this is resolved automatically.
+**`no route to host` before the node is ready.** Dials to a peer's `fd7a:…`
+address can fail with `no route to host` while the same host succeeds moments
+later, which looks like an IPv6 routing limitation. In every observed case the
+failures fell inside a cold-start window where requests raced tsnet bring-up;
+once the node reached Running with a working path, both the IPv4 and IPv6
+addresses worked, including for Tailscale *service* VIPs (an address advertised
+by a node rather than the node's own MagicDNS name). Pinning the IPv4 address in
+the Public field is a useful diagnostic, not a required workaround.
 
 **Requests never trigger enrollment.** `FinampHttpClient` calls
 `ensureRunning(allowEnroll: false)` with an 8s budget, so a queued request can
