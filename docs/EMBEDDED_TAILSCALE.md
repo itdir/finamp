@@ -43,9 +43,11 @@ load.
 LAN or a reachable public URL for those until a dedicated tsnet media path
 exists; downloaded tracks still play offline.
 
-When the toggle is on, app launch calls `EmbeddedTailscaleService.up()` which
-resumes persisted credentials (falling back to the stored auth key only if
-resume fails or returns `needsLogin`).
+When the toggle is on, app launch starts `EmbeddedTailscaleService.up()` in the
+background so a slow control-plane connection cannot delay the first screen.
+Persisted credentials resume first; the stored auth key is used only if resume
+fails or returns `needsLogin`. All callers share one in-flight `up()` operation
+so startup and connectivity events cannot race into duplicate enrollment.
 
 Toggle off to use the normal LAN / public HTTP client again.
 
@@ -95,7 +97,8 @@ flutter run
 ## Security notes
 
 - Node WireGuard private key lives under application support
-  (`…/embedded_tailscale/`). Do not back this directory up to iCloud.
+  (`…/embedded_tailscale/`). On iOS, `AppDelegate` excludes the application
+  support directory from iCloud backup using `URLResourceValues`.
 - **Auth keys** and the **Music Finder server URL** are stored with
   `flutter_secure_storage` (iOS/macOS Keychain, Android EncryptedSharedPreferences /
   Keystore)—not Hive or plain SharedPreferences. Older plaintext copies are

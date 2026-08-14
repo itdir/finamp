@@ -13,9 +13,9 @@ import 'finamp_secrets.dart';
 
 /// Lifecycle wrapper around [package:tailscale] userspace tsnet.
 ///
-/// Keeps the node state directory under application support and marks it
-/// excluded from iCloud backup on iOS (leaked WireGuard keys can impersonate
-/// the node).
+/// Keeps the node state directory under application support. On iOS,
+/// AppDelegate excludes application support from iCloud backup (leaked
+/// WireGuard keys can impersonate the node).
 ///
 /// **Connect strategy:**
 /// 1. Prefer [up] **without** an auth key so persisted credentials reconnect
@@ -31,9 +31,9 @@ class EmbeddedTailscaleService {
 
   static final _log = Logger('EmbeddedTailscaleService');
   static bool _initialized = false;
-  static String? _stateDirPath;
   static TailscaleStatus? _lastStatus;
   static Object? _lastError;
+  static Future<TailscaleStatus>? _upInFlight;
 
   static TailscaleStatus? get lastStatus => _lastStatus;
   static Object? get lastError => _lastError;
@@ -82,8 +82,6 @@ class EmbeddedTailscaleService {
     if (!await stateDir.exists()) {
       await stateDir.create(recursive: true);
     }
-    await _excludeFromBackup(stateDir);
-    _stateDirPath = stateDir.path;
     Tailscale.init(stateDir: stateDir.path);
     _initialized = true;
     _log.info('Initialized tsnet stateDir=${stateDir.path}');
@@ -102,6 +100,29 @@ class EmbeddedTailscaleService {
     String hostname = 'finamp',
     bool ephemeral = false,
     bool forceEnroll = false,
+  }) {
+    final inFlight = _upInFlight;
+    if (inFlight != null) {
+      _log.fine('Joining in-flight up()');
+      return inFlight;
+    }
+
+    late final Future<TailscaleStatus> operation;
+    operation = _upBody(authKey: authKey, hostname: hostname, ephemeral: ephemeral, forceEnroll: forceEnroll)
+        .whenComplete(() {
+          if (identical(_upInFlight, operation)) {
+            _upInFlight = null;
+          }
+        });
+    _upInFlight = operation;
+    return operation;
+  }
+
+  static Future<TailscaleStatus> _upBody({
+    required String? authKey,
+    required String hostname,
+    required bool ephemeral,
+    required bool forceEnroll,
   }) async {
     await ensureInitialized();
     _lastError = null;
@@ -276,13 +297,4 @@ class EmbeddedTailscaleService {
 
   static ffi.DynamicLibrary get _libc =>
       (Platform.isAndroid || Platform.isLinux) ? ffi.DynamicLibrary.open('libc.so') : ffi.DynamicLibrary.process();
-
-  static Future<void> _excludeFromBackup(Directory dir) async {
-    if (kIsWeb || !Platform.isIOS) return;
-    try {
-      await Process.run('xattr', ['-w', 'com.apple.MobileBackup', '1', dir.path]);
-    } catch (e) {
-      _log.warning('Could not exclude Tailscale state from backup: $e');
-    }
-  }
 }

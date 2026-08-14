@@ -158,8 +158,10 @@ Future<void> main(List<String> args, {bool integrationTesting = false, bool logi
     _mainLog.info("Installed client certificate");
     await _setupFinampUserHelper();
     _mainLog.info("Setup user helper");
-    await _setupEmbeddedTailscale();
-    _mainLog.info("Setup embedded Tailscale");
+    // Tailscale control-plane startup can take up to 30 seconds. Start it in
+    // parallel so a slow or unavailable tailnet never blocks the first frame.
+    unawaited(_setupEmbeddedTailscale());
+    _mainLog.info("Started embedded Tailscale setup");
     await _setupJellyfinApiData();
     _mainLog.info("setup jellyfin api");
     _setupOfflineListenLogHelper();
@@ -376,7 +378,7 @@ Future<void> _setupProviders() async {
   var container = ProviderContainer(observers: [FinampProviderObserver()]);
   GetIt.instance.registerSingleton<ProviderContainer>(container);
   // Make sure that finampSettingsProvider always has a value available
-  container.listen(finampSettingsProvider, (_, __) {});
+  container.listen(finampSettingsProvider, (_, _) {});
   await container.read(finampSettingsProvider.future);
 
   await initImageCache();
