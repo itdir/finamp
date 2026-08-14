@@ -170,23 +170,35 @@ EOF
   (
     set -e
     flutter build ios --config-only --profile
+    # flutter --config-only rewrites Runner pbxproj back to upstream IDs —
+    # re-apply personal-team bundle/team before archive (Runner target only).
+    sed -i '' \
+      -e "s/DEVELOPMENT_TEAM = PFNS8PTRM7;/DEVELOPMENT_TEAM = $IOS_TEAM_ID;/g" \
+      -e "s/PRODUCT_BUNDLE_IDENTIFIER = \"com.unicornsonlsd.finamp-ios\";/PRODUCT_BUNDLE_IDENTIFIER = \"$IOS_BUNDLE_ID\";/g" \
+      "$pb"
     cd "$ROOT/ios"
     pod install
     rm -rf "$archive_path" "$export_path"
     mkdir -p "$(dirname "$archive_path")" "$export_path"
+    # Never pass PRODUCT_BUNDLE_IDENTIFIER on the xcodebuild command line —
+    # that stamps CocoaPods frameworks and causes DuplicateIdentifier installs.
     xcodebuild \
       -workspace Runner.xcworkspace \
       -scheme Runner \
       -configuration Profile \
+      -destination 'generic/platform=iOS' \
       -archivePath "$archive_path" \
       -allowProvisioningUpdates \
+      -allowProvisioningDeviceRegistration \
       DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+      CODE_SIGN_STYLE=Automatic \
       archive
     xcodebuild -exportArchive \
       -archivePath "$archive_path" \
       -exportPath "$export_path" \
       -exportOptionsPlist "$export_plist" \
-      -allowProvisioningUpdates
+      -allowProvisioningUpdates \
+      -allowProvisioningDeviceRegistration
   ) && build_ok=1 || build_ok=0
 
   mv -f "$pb_bak" "$pb"
