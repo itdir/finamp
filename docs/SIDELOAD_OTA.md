@@ -132,6 +132,10 @@ button appears only then — it is not a setup guide for SideStore itself.
 Weekly / 7-day personal cert refresh is still required; version OTA does not
 refresh code signing.
 
+Longer-term ideas for private Mac-mini signing, Tailscale IPA hosting, and
+automated Personal Team refresh live under
+[FUTURE_POSSIBILITIES.md](FUTURE_POSSIBILITIES.md) (not scheduled).
+
 ## Troubleshooting
 
 ### “Update check already running”

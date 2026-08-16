@@ -1,0 +1,1213 @@
+{
+  "document": {
+    "title": "Self-Hosted iOS Development, Signing, Sideloading, Distribution, and Provisioning-Refresh Handoff",
+    "document_type": "comprehensive_engineering_handoff",
+    "version": "2.0.0",
+    "date": "2026-08-16",
+    "status": "design_and_implementation_planning",
+    "scope": "Complete record of the proposed zero-cost, non-jailbroken, privately hosted iOS development and distribution architecture discussed in this conversation.",
+    "audience": [
+      "system administrator",
+      "iOS developer",
+      "DevOps engineer",
+      "self-hosting enthusiast",
+      "future implementation agent"
+    ]
+  },
+  "executive_summary": {
+    "goal": "Build a privately hosted iOS development and distribution system that allows the owner to develop apps, automatically build and sign them, publish IPAs on infrastructure they control, and minimize or automate Apple's free Personal Team provisioning refresh requirements.",
+    "primary_constraint": "The owner does not want to pay Apple the $99/year Apple Developer Program fee.",
+    "secondary_constraints": [
+      "No jailbreak.",
+      "No public domain required.",
+      "No public-facing web infrastructure required.",
+      "No public VPS required.",
+      "Prefer existing owned hardware.",
+      "Prefer self-hosting.",
+      "Use Tailscale for private connectivity.",
+      "Automate as much of the process as possible."
+    ],
+    "recommended_architecture": {
+      "development": "MacBook Pro",
+      "source_control": "Self-hosted Git or existing Git provider",
+      "CI_orchestration": "Linux VM",
+      "Apple_build_and_signing": "Always-on Mac mini",
+      "artifact_storage": "Existing NAS",
+      "private_network": "Tailscale",
+      "IPA_repository": "Private HTTPS service accessible through Tailscale",
+      "iOS_distribution_client": "AltStore Classic or another compatible sideload/refresh mechanism",
+      "refresh_host": "Mac mini",
+      "monitoring": "Linux VM",
+      "Apple_account": "Normal personal Apple Account",
+      "paid_Apple_Developer_Program": false,
+      "jailbreak": false
+    },
+    "core_principle": "Do not attempt to defeat Apple's cryptographic signing or provisioning system. Instead, automate the legitimate free Personal Team workflow and accept its limits.",
+    "most_important_caveat": "A free Personal Team provisioning profile has a short validity period. Infrastructure can automate refresh/rebuild/reinstallation, but it cannot turn a free Apple development identity into a permanent unrestricted signing identity."
+  },
+  "conversation_context": {
+    "original_question": "Can an IPA package be downloaded and installed on an iPhone?",
+    "clarification": "The user was specifically interested in which installation/distribution methods are free to the developer.",
+    "developer_goal": "Write and distribute iOS applications without paying Apple $99/year.",
+    "distribution_target": "Potentially 5-20 friends, although personal/self-owned device deployment is the primary architectural target.",
+    "regional_context": [
+      "User has friends in the EU.",
+      "User has friends in Japan.",
+      "User has friends in Brazil.",
+      "User can potentially access those friends' addresses.",
+      "User uses a VPN and can select different apparent network locations."
+    ],
+    "important_regional_conclusion": "A VPN or merely having a friend's address does not automatically establish eligibility for Apple's regional alternative-distribution programs. Physical/device/account eligibility must be treated separately from IP geolocation.",
+    "hardware_context": {
+      "macbook_pros": "Multiple",
+      "mac_mini": {
+        "always_on": true,
+        "existing_roles": [
+          "HTPC",
+          "Jellyfin",
+          "NAS"
+        ]
+      },
+      "linux": {
+        "vm_host": true,
+        "available": "Several Linux VMs"
+      },
+      "networking": "Tailscale is already available and is embedded in at least one of the user's applications."
+    }
+  },
+  "apple_distribution_options": {
+    "overview": [
+      {
+        "method": "App Store",
+        "developer_cost": "Requires paid Apple Developer Program membership",
+        "friend_cost": "Free for free apps",
+        "appropriate_for": "Public distribution",
+        "recommended_for_current_goal": false
+      },
+      {
+        "method": "TestFlight",
+        "developer_cost": "Requires paid Apple Developer Program membership",
+        "friend_cost": "Free to testers",
+        "appropriate_for": "Private beta testing",
+        "recommended_for_current_goal": false
+      },
+      {
+        "method": "Ad Hoc distribution",
+        "developer_cost": "Requires paid Apple Developer Program membership",
+        "friend_cost": "Free",
+        "device_registration": "Required",
+        "appropriate_for": "Controlled device distribution",
+        "recommended_for_current_goal": false
+      },
+      {
+        "method": "Free Personal Team",
+        "developer_cost": "$0",
+        "appropriate_for": "Personal development/testing",
+        "limitations": [
+          "Short provisioning validity",
+          "Limited devices",
+          "Limited App IDs",
+          "Not a general-purpose commercial distribution channel"
+        ],
+        "recommended_for_current_goal": true
+      },
+      {
+        "method": "AltStore Classic",
+        "developer_cost": "$0 when using a free Apple development identity",
+        "jailbreak": false,
+        "purpose": "Sideload/manage IPAs using Apple's permitted development signing mechanism",
+        "key_limitation": "Free-account provisioning remains subject to Apple's short validity period",
+        "recommended_for_current_goal": true
+      },
+      {
+        "method": "Sideloadly",
+        "developer_cost": "$0 for basic free-account use",
+        "jailbreak": false,
+        "purpose": "IPA sideloading/signing automation",
+        "key_limitation": "Free Apple provisioning expiration still applies",
+        "recommended_for_current_goal": "Possible alternative"
+      },
+      {
+        "method": "Alternative app marketplaces / alternative distribution",
+        "developer_cost": "Region- and program-dependent",
+        "regions_discussed": [
+          "EU",
+          "Japan",
+          "Brazil"
+        ],
+        "key_limitation": "Regional eligibility cannot be assumed from VPN location or an arbitrary address",
+        "recommended_for_current_goal": false,
+        "reason": "The user's actual deployment environment is not established as regionally eligible."
+      },
+      {
+        "method": "Jailbreak",
+        "developer_cost": "Potentially $0",
+        "jailbreak": true,
+        "recommended_for_current_goal": false,
+        "reason": "Explicitly excluded by user."
+      }
+    ]
+  },
+  "free_personal_team": {
+    "cost": "$0",
+    "purpose": "Apple's free development provisioning for personal development/testing.",
+    "known_limits": {
+      "devices": 3,
+      "app_ids": 10,
+      "apps_per_device": 3,
+      "provisioning_validity": "7 days"
+    },
+    "operational_effect": "The application may stop launching when its provisioning expires unless it has been refreshed/reinstalled with valid provisioning.",
+    "important_distinction": "A sideloading application can automate or simplify refreshing, but it does not eliminate Apple's underlying provisioning validity.",
+    "recommended_use": [
+      "Personal projects",
+      "Learning iOS development",
+      "Development testing",
+      "Small-scale personal deployment"
+    ],
+    "not_recommended_use": [
+      "20-person long-term distribution",
+      "Public commercial distribution",
+      "Permanent unrestricted installation"
+    ],
+    "official_reference": {
+      "name": "Apple Developer Account",
+      "url": "https://developer.apple.com/help/account/basics/about-your-developer-account"
+    }
+  },
+  "seven_day_issue": {
+    "user_reaction": "The user considers the 7-day expiration unacceptable/stupid.",
+    "technical_reality": "The expiration is an Apple-imposed provisioning constraint.",
+    "important_response": "The system should automate the maintenance rather than attempt to defeat the expiration.",
+    "desired_user_experience": {
+      "manual": "Install -> wait 7 days -> app expires -> manually reinstall",
+      "desired": "Install -> infrastructure monitors provisioning -> refresh/rebuild before expiration -> app remains usable with minimal manual intervention"
+    },
+    "hard_boundary": "The automation does not create permanent free provisioning.",
+    "design_goal": "Make the 7-day restriction operationally invisible or nearly invisible where technically possible."
+  },
+  "third_party_sideloading": {
+    "tools_discussed": [
+      "AltStore Classic",
+      "AltServer",
+      "Sideloadly",
+      "SideStore"
+    ],
+    "general_model": "These tools automate some or all of the signing, installation, and refresh workflow while still depending on Apple's provisioning/signing infrastructure.",
+    "security_warning": "Do not give Apple credentials to arbitrary third-party signing services merely because they promise permanent or unlimited signing.",
+    "preferred_security_model": "Perform signing locally on owned hardware where possible.",
+    "reason": "The user owns multiple Macs and an always-on Mac mini, so there is little reason to outsource Apple credential handling to an unknown service."
+  },
+  "altstore_architecture": {
+    "components": {
+      "AltStore": {
+        "role": "iOS-side application management",
+        "function": [
+          "Discover apps",
+          "Install IPAs",
+          "Manage app metadata",
+          "Coordinate refreshes"
+        ]
+      },
+      "AltServer": {
+        "role": "desktop/server-side component",
+        "function": [
+          "Communicate with the iOS device",
+          "Perform or coordinate signing",
+          "Refresh applications",
+          "Support installation workflows"
+        ]
+      },
+      "AltSign": {
+        "role": "Apple signing/provisioning interaction",
+        "function": "Provides functionality used by AltServer-related workflows to interact with Apple's signing infrastructure."
+      },
+      "AltStore_source": {
+        "role": "App catalog metadata",
+        "hosting": "Can be self-hosted",
+        "typical_contents": [
+          "source.json",
+          "IPA download URLs",
+          "app names",
+          "versions",
+          "icons",
+          "metadata"
+        ]
+      }
+    },
+    "source_hosting": {
+      "public_domain_required": false,
+      "public_server_required": false,
+      "recommended": true,
+      "transport": "HTTPS over Tailscale",
+      "example": "https://ios-apps.<tailnet>/source.json"
+    },
+    "source_reference": {
+      "developer_documentation": "https://faq.altstore.io/developers/make-a-source"
+    },
+    "important_design_choice": "Use AltStore-compatible source metadata rather than inventing a proprietary IPA catalog protocol unless a custom client is eventually required."
+  },
+  "self_hosting_strategy": {
+    "question_addressed": "How to duplicate AltStore/AltServer-like behavior on infrastructure controlled by the user?",
+    "answer": "Split the problem into build/signing, artifact hosting, device installation/refresh, and orchestration rather than trying to reproduce the entire system as one server.",
+    "recommended_split": {
+      "build": "Mac mini",
+      "Apple_signing": "Mac mini using Xcode and Apple development identity",
+      "orchestration": "Linux VM",
+      "artifact_storage": "NAS",
+      "artifact_HTTP": "Mac mini or NAS",
+      "private_network": "Tailscale",
+      "iOS_installation": "AltStore-compatible mechanism",
+      "monitoring": "Linux VM"
+    },
+    "reason": "Apple-specific operations naturally belong on macOS; generic infrastructure is better handled by Linux."
+  },
+  "why_not_a_linux_signing_server": {
+    "possible": true,
+    "reason_not_primary": [
+      "The user already has Macs.",
+      "The Mac mini is always on.",
+      "Xcode is Apple's native build/signing environment.",
+      "There is no need to recreate Apple's signing behavior if Xcode can perform it."
+    ],
+    "community_implementations": [
+      "AltServer-Linux and related projects demonstrate that portions of AltServer functionality can be implemented outside macOS."
+    ],
+    "recommendation": "Do not make Linux responsible for Apple signing unless a later requirement makes that necessary."
+  },
+  "mac_mini_role": {
+    "why_it_is_ideal": [
+      "Always on",
+      "Already performs server functions",
+      "Already hosts Jellyfin",
+      "Already participates in the NAS environment",
+      "Can run Xcode",
+      "Can access the iPhone when appropriate",
+      "Can participate in Tailscale",
+      "Can act as a persistent build/signing worker"
+    ],
+    "proposed_services": [
+      "Xcode command-line build worker",
+      "Apple signing/provisioning worker",
+      "AltServer or compatible refresh service",
+      "Private IPA repository",
+      "Artifact publisher",
+      "Provisioning expiration monitor",
+      "Tailscale node"
+    ],
+    "security_boundary": "Treat the Mac mini as a privileged Apple credential/signing host."
+  },
+  "macbook_role": {
+    "purpose": [
+      "Interactive development",
+      "Xcode debugging",
+      "Simulator use",
+      "Source editing",
+      "Manual device testing",
+      "Emergency fallback build/signing host"
+    ],
+    "recommended_workflow": "Developer works interactively on MacBook Pro and pushes code to source control; CI then builds the app on the Mac mini."
+  },
+  "linux_vm_role": {
+    "purpose": "Generic infrastructure and orchestration.",
+    "recommended_services": [
+      "Git",
+      "CI",
+      "Build orchestration",
+      "Monitoring",
+      "Logging",
+      "Metadata generation",
+      "Notification service",
+      "Optional internal API"
+    ],
+    "do_not_store": [
+      "Apple passwords",
+      "Apple authentication tokens unless absolutely required",
+      "private signing credentials"
+    ],
+    "reason": "Keep the Apple credential trust boundary on macOS."
+  },
+  "nas_role": {
+    "purpose": "Persistent storage for build and release artifacts.",
+    "recommended_artifacts": [
+      "IPA files",
+      "Xcode archives",
+      "Build logs",
+      "Release metadata",
+      "Source repository backups",
+      "Build manifests",
+      "Hashes"
+    ],
+    "recommended_storage_model": {
+      "immutable_builds": true,
+      "versioned_directories": true,
+      "retention_policy": true,
+      "backup": true
+    }
+  },
+  "tailscale_architecture": {
+    "user_context": "The user already uses Tailscale and has Tailscale embedded in their application.",
+    "important_distinction": {
+      "statement": "Application-level Tailscale functionality and system-level Tailscale connectivity on iOS should not be assumed to be equivalent.",
+      "consequence": "An installation/refresh manager cannot necessarily use the private network path created by the user's application.",
+      "recommended": "Use the standard/system Tailscale iOS network path when the installation manager itself must access the tailnet."
+    },
+    "benefits": [
+      "No public domain",
+      "No public DNS",
+      "No port forwarding",
+      "No public IP requirement",
+      "No public web server",
+      "Private access between owned devices",
+      "Remote access from trusted devices"
+    ],
+    "example_nodes": [
+      "Mac mini",
+      "MacBook Pro systems",
+      "Linux VMs",
+      "NAS",
+      "iPhone"
+    ],
+    "example_private_service": {
+      "hostname": "ios-apps.<tailnet>",
+      "url": "https://ios-apps.<tailnet>/source.json"
+    },
+    "security": [
+      "Use Tailscale ACLs.",
+      "Restrict repository access to trusted devices.",
+      "Do not expose signing services to the public Internet.",
+      "Do not expose AltServer publicly.",
+      "Use HTTPS where practical even inside the tailnet."
+    ],
+    "references": [
+      {
+        "name": "Tailscale iOS/tvOS deployment documentation",
+        "url": "https://tailscale.com/docs/integrations/mdm/ios"
+      },
+      {
+        "name": "Apple Network Extension",
+        "url": "https://developer.apple.com/documentation/networkextension"
+      }
+    ]
+  },
+  "no_domain_required": {
+    "conclusion": true,
+    "reason": "Tailscale provides private connectivity and naming within the tailnet.",
+    "recommended_access": [
+      "Tailscale DNS",
+      "Tailscale hostnames",
+      "HTTPS",
+      "Tailscale ACLs"
+    ],
+    "not_required": [
+      "Cloudflare",
+      "public DNS",
+      "public reverse proxy",
+      "public VPS",
+      "port forwarding"
+    ]
+  },
+  "private_ipa_repository": {
+    "purpose": "Host IPAs and metadata privately.",
+    "recommended_location": "NAS or Mac mini",
+    "network": "Tailscale only",
+    "protocol": "HTTPS",
+    "directory_example": {
+      "root": "/srv/ios-apps",
+      "contents": [
+        "source.json",
+        "apps/MyApp/1.0.0/MyApp.ipa",
+        "apps/MyApp/1.0.1/MyApp.ipa",
+        "icons/MyApp.png",
+        "metadata/MyApp.json"
+      ]
+    },
+    "versioning": {
+      "immutable_artifacts": true,
+      "latest_pointer": true,
+      "retention": true
+    },
+    "integrity": {
+      "recommended": true,
+      "fields": [
+        "SHA-256",
+        "bundle identifier",
+        "version",
+        "build number",
+        "git commit",
+        "provisioning expiration"
+      ]
+    }
+  },
+  "source_json": {
+    "purpose": "Provide an AltStore-compatible catalog.",
+    "example_structure": {
+      "apps": [
+        {
+          "name": "MyApp",
+          "bundleIdentifier": "com.example.myapp",
+          "developerName": "Owner",
+          "subtitle": "Private development build",
+          "version": "1.0.0",
+          "downloadURL": "https://ios-apps.<tailnet>/apps/MyApp/1.0.0/MyApp.ipa",
+          "iconURL": "https://ios-apps.<tailnet>/icons/MyApp.png"
+        }
+      ]
+    },
+    "note": "The exact schema must be generated according to the current AltStore source specification rather than relying on this conceptual example.",
+    "reference": "https://faq.altstore.io/developers/make-a-source"
+  },
+  "build_pipeline": {
+    "desired_user_experience": "git push -> automated build -> signed IPA -> private repository -> iPhone installation/update",
+    "pipeline": [
+      {
+        "stage": 1,
+        "name": "Developer push",
+        "host": "MacBook Pro",
+        "action": "git push"
+      },
+      {
+        "stage": 2,
+        "name": "CI trigger",
+        "host": "Linux VM",
+        "action": "Detect new commit and queue build."
+      },
+      {
+        "stage": 3,
+        "name": "Mac dispatch",
+        "host": "Linux VM",
+        "action": "Send build request to Mac mini."
+      },
+      {
+        "stage": 4,
+        "name": "Checkout",
+        "host": "Mac mini",
+        "action": "Checkout exact commit."
+      },
+      {
+        "stage": 5,
+        "name": "Dependency resolution",
+        "host": "Mac mini",
+        "action": "Resolve Swift Package Manager, CocoaPods, or other dependencies as applicable."
+      },
+      {
+        "stage": 6,
+        "name": "Testing",
+        "host": "Mac mini",
+        "action": "Run automated tests."
+      },
+      {
+        "stage": 7,
+        "name": "Archive",
+        "host": "Mac mini",
+        "tool": "xcodebuild",
+        "action": "Create Xcode archive."
+      },
+      {
+        "stage": 8,
+        "name": "Signing/export",
+        "host": "Mac mini",
+        "tool": "Xcode/xcodebuild",
+        "action": "Sign and export IPA using permitted Apple development provisioning."
+      },
+      {
+        "stage": 9,
+        "name": "Validation",
+        "host": "Mac mini",
+        "action": "Inspect IPA, bundle identifier, version, build number, entitlements, and provisioning expiration."
+      },
+      {
+        "stage": 10,
+        "name": "Publication",
+        "host": "Mac mini/NAS",
+        "action": "Publish immutable IPA and update source metadata."
+      },
+      {
+        "stage": 11,
+        "name": "Notification",
+        "host": "Linux VM",
+        "action": "Report build result and provisioning expiration."
+      }
+    ]
+  },
+  "xcode_automation": {
+    "primary_tool": "xcodebuild",
+    "conceptual_commands": {
+      "archive": "xcodebuild -project MyApp.xcodeproj -scheme MyApp -configuration Release -archivePath build/MyApp.xcarchive archive",
+      "export": "xcodebuild -exportArchive -archivePath build/MyApp.xcarchive -exportOptionsPlist ExportOptions.plist -exportPath build/export"
+    },
+    "important_note": "These are conceptual commands. Actual signing, export options, workspace/project configuration, bundle identifiers, capabilities, and provisioning settings must be adapted to the specific application.",
+    "preferred_signing": "Use Xcode's legitimate Apple signing workflow wherever practical.",
+    "credential_storage": "macOS Keychain",
+    "avoid": [
+      "Apple passwords in source control",
+      "Apple passwords in plaintext configuration",
+      "unnecessary credential exposure to Linux"
+    ]
+  },
+  "signing_architecture": {
+    "principle": "The Mac mini is the Apple signing trust boundary.",
+    "preferred": "Xcode-managed signing/provisioning",
+    "reason": [
+      "Xcode is Apple's native development environment.",
+      "The user already owns Macs.",
+      "No need to reimplement Apple's signing protocol unnecessarily.",
+      "Keeps Apple credentials on macOS."
+    ],
+    "linux_role": "Request and monitor builds, but do not require direct Apple credential access.",
+    "hard_limit": "Self-hosting cannot manufacture an unrestricted Apple signing identity."
+  },
+  "refresh_architecture": {
+    "objective": "Make the free Personal Team's short provisioning lifetime as invisible as possible.",
+    "components": [
+      "Mac mini",
+      "iPhone",
+      "AltServer-compatible mechanism",
+      "Tailscale",
+      "provisioning expiration monitor"
+    ],
+    "monitoring": {
+      "extract": [
+        "expiration date",
+        "team identifier",
+        "bundle identifier",
+        "device association"
+      ],
+      "alerts": [
+        "48 hours remaining",
+        "12 hours remaining",
+        "expired"
+      ]
+    },
+    "operational_strategy": [
+      "Monitor expiration continuously.",
+      "Refresh while the device and required services are reachable.",
+      "If refresh cannot occur, notify the owner.",
+      "Use USB/manual recovery when necessary.",
+      "Never assume that automated refresh removes Apple's underlying expiration."
+    ]
+  },
+  "device_connectivity": {
+    "lan": {
+      "preferred": true,
+      "reason": "Most deterministic local path."
+    },
+    "tailscale": {
+      "preferred_for": [
+        "Private repository access",
+        "Remote infrastructure access",
+        "Monitoring",
+        "Administrative operations"
+      ],
+      "caveat": "The refresh mechanism may have additional requirements beyond ordinary HTTP connectivity."
+    },
+    "usb": {
+      "preferred_for": [
+        "Initial setup",
+        "Debugging",
+        "Recovery",
+        "When wireless refresh fails"
+      ]
+    }
+  },
+  "security_model": {
+    "trust_zones": {
+      "zone_1": {
+        "name": "Apple signing host",
+        "host": "Mac mini",
+        "sensitivity": "highest"
+      },
+      "zone_2": {
+        "name": "Infrastructure",
+        "hosts": [
+          "Linux VMs",
+          "NAS"
+        ],
+        "sensitivity": "medium"
+      },
+      "zone_3": {
+        "name": "Developer devices",
+        "hosts": [
+          "MacBooks",
+          "iPhone"
+        ],
+        "sensitivity": "medium"
+      }
+    },
+    "rules": [
+      "Apple credentials stay on Mac mini.",
+      "CI should not receive Apple passwords.",
+      "IPA repository is private.",
+      "Tailscale ACLs restrict access.",
+      "No public signing API.",
+      "No public AltServer endpoint.",
+      "No public IPA endpoint.",
+      "Keep build logs.",
+      "Keep artifact hashes.",
+      "Back up source and release artifacts."
+    ]
+  },
+  "regional_distribution": {
+    "regions_discussed": [
+      "European Union",
+      "Japan",
+      "Brazil"
+    ],
+    "user_resources": {
+      "friends_in_regions": true,
+      "addresses_available": true,
+      "vpn_available": true
+    },
+    "important_conclusion": {
+      "vpn": "Changing VPN exit location does not by itself establish regional eligibility.",
+      "address": "Using a friend's address does not by itself establish eligibility.",
+      "account": "Apple Account country/region matters.",
+      "device": "Physical/device location and regional eligibility can also matter.",
+      "recommendation": "Do not attempt to fabricate regional eligibility merely to avoid the Developer Program fee."
+    },
+    "alternative_distribution": {
+      "status": "Potentially relevant in supported regions.",
+      "limitation": "Regional alternative distribution is not equivalent to a universal free IPA sideloading mechanism.",
+      "recommendation": "Treat as a separate future investigation, not as the foundation of this architecture."
+    }
+  },
+  "five_to_twenty_friends": {
+    "question": "Can 5-20 friends receive the app for free without the $99 Apple Developer Program?",
+    "answer": "Not through Apple's normal unrestricted distribution mechanisms using a free Personal Team.",
+    "free_personal_team": {
+      "fit": "Poor for 5-20 long-term users.",
+      "reason": "Device and provisioning limitations."
+    },
+    "testflight": {
+      "fit": "Excellent technically",
+      "cost": "Requires paid Developer Program",
+      "current_goal": false
+    },
+    "ad_hoc": {
+      "fit": "Good technically",
+      "cost": "Requires paid Developer Program",
+      "current_goal": false
+    },
+    "altstore_classic": {
+      "fit": "Useful for self-owned/testing devices",
+      "limitation": "Free signing constraints remain.",
+      "recommended": true
+    },
+    "alternative_distribution": {
+      "fit": "Potentially relevant for eligible regional users/developers",
+      "limitation": "Does not turn a U.S. free Personal Team into unrestricted worldwide distribution."
+    }
+  },
+  "self_hosted_server_design": {
+    "question": "Can AltStore/AltServer behavior be duplicated on self-owned servers?",
+    "answer": "Much of the infrastructure can be self-hosted, but Apple's signing/provisioning authority remains external.",
+    "self_hostable": [
+      "IPA repository",
+      "source catalog",
+      "build orchestration",
+      "CI",
+      "artifact storage",
+      "monitoring",
+      "metadata generation",
+      "private network",
+      "build workers",
+      "refresh orchestration"
+    ],
+    "not_self_authoritative": [
+      "Apple's cryptographic trust",
+      "Apple's provisioning validity",
+      "Apple's device authorization",
+      "Apple's developer identity infrastructure"
+    ],
+    "recommended_model": "Self-host everything except the Apple-controlled signing/provisioning operations."
+  },
+  "potential_custom_architecture": {
+    "conceptual_flow": [
+      "Developer",
+      "Linux CI",
+      "Mac mini",
+      "Xcode",
+      "Apple",
+      "Signed IPA",
+      "NAS",
+      "Tailscale",
+      "iPhone"
+    ],
+    "diagram": "Developer MacBook -> Linux CI -> Mac mini -> Xcode/Apple signing -> NAS/private IPA repository -> Tailscale -> iPhone",
+    "advantage": "Clear separation of responsibilities.",
+    "disadvantage": "More infrastructure to maintain.",
+    "recommendation": "Implement incrementally."
+  },
+  "potential_custom_ios_client": {
+    "status": "Optional future project",
+    "initial_recommendation": false,
+    "reason": "AltStore already solves much of the iOS-side management problem.",
+    "build_only_if": [
+      "AltStore source format becomes insufficient.",
+      "AltServer refresh behavior cannot meet requirements.",
+      "The user wants a custom private app-management UX.",
+      "A fully self-contained product is desired."
+    ],
+    "risk": "Maintaining iOS-specific installation and signing compatibility is substantially more work than hosting IPAs."
+  },
+  "recommended_service_layout": {
+    "mac_mini": {
+      "directories": [
+        "/opt/ios-build/source",
+        "/opt/ios-build/work",
+        "/opt/ios-build/scripts",
+        "/mnt/nas/ios-builds/archives",
+        "/mnt/nas/ios-builds/ipas",
+        "/mnt/nas/ios-builds/logs",
+        "/mnt/nas/ios-builds/metadata"
+      ],
+      "launchd_services": [
+        "com.local.ios-build-agent",
+        "com.local.ios-refresh-monitor",
+        "com.local.ios-repository"
+      ]
+    },
+    "linux": {
+      "services": [
+        "Git",
+        "CI",
+        "monitoring",
+        "logging",
+        "notifications"
+      ]
+    },
+    "nas": {
+      "services": [
+        "persistent storage",
+        "backup",
+        "optional HTTPS repository"
+      ]
+    }
+  },
+  "monitoring": {
+    "metrics": [
+      "last successful build",
+      "last failed build",
+      "current application version",
+      "current build number",
+      "provisioning expiration",
+      "last successful refresh",
+      "Mac mini availability",
+      "Tailscale connectivity",
+      "repository availability",
+      "NAS availability"
+    ],
+    "alerts": [
+      "build failure",
+      "signing failure",
+      "Apple authentication failure",
+      "provisioning expiration within 48 hours",
+      "provisioning expiration within 12 hours",
+      "expired provisioning",
+      "Mac mini offline",
+      "iPhone unreachable",
+      "Tailscale unavailable",
+      "repository unavailable",
+      "NAS unavailable"
+    ]
+  },
+  "failure_modes": [
+    {
+      "failure": "Mac mini offline",
+      "impact": "No build/sign/refresh service.",
+      "mitigation": [
+        "MacBook fallback",
+        "UPS",
+        "launchd auto-restart",
+        "monitoring"
+      ]
+    },
+    {
+      "failure": "iPhone unreachable",
+      "impact": "Refresh may not occur.",
+      "mitigation": [
+        "Tailscale diagnostics",
+        "LAN fallback",
+        "USB recovery",
+        "expiration alerts"
+      ]
+    },
+    {
+      "failure": "Apple authentication failure",
+      "impact": "Cannot obtain fresh valid provisioning/signing.",
+      "mitigation": [
+        "Open Xcode",
+        "Reauthenticate",
+        "Verify Keychain",
+        "Retry build"
+      ]
+    },
+    {
+      "failure": "Provisioning expired",
+      "impact": "Application may stop launching.",
+      "mitigation": [
+        "Re-sign",
+        "Reinstall",
+        "Refresh through supported mechanism"
+      ]
+    },
+    {
+      "failure": "NAS unavailable",
+      "impact": "Artifact repository unavailable.",
+      "mitigation": [
+        "Mac mini local cache",
+        "Temporary local repository",
+        "NAS recovery"
+      ]
+    },
+    {
+      "failure": "Tailscale unavailable",
+      "impact": "Remote private access unavailable.",
+      "mitigation": [
+        "LAN access",
+        "USB deployment",
+        "Tailscale recovery"
+      ]
+    }
+  ],
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "name": "Prove free Apple deployment",
+      "tasks": [
+        "Install Xcode.",
+        "Authenticate Apple Account.",
+        "Create/open an iOS project.",
+        "Enable automatic signing.",
+        "Install on iPhone.",
+        "Confirm application launches.",
+        "Inspect provisioning profile.",
+        "Record expiration."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Automate Xcode build",
+      "tasks": [
+        "Create archive script.",
+        "Create export configuration.",
+        "Produce IPA.",
+        "Validate IPA.",
+        "Extract provisioning metadata."
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Private repository",
+      "tasks": [
+        "Create private repository.",
+        "Configure HTTPS.",
+        "Restrict service to Tailscale.",
+        "Generate source.json.",
+        "Publish first IPA.",
+        "Test from iPhone."
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "AltStore integration",
+      "tasks": [
+        "Install AltStore/AltServer.",
+        "Add private source.",
+        "Install test IPA.",
+        "Verify refresh.",
+        "Verify remote/private connectivity."
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "CI",
+      "tasks": [
+        "Install Git/CI on Linux VM.",
+        "Create Mac mini build agent.",
+        "Trigger xcodebuild remotely.",
+        "Publish IPA automatically.",
+        "Update source metadata."
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Provisioning monitoring",
+      "tasks": [
+        "Parse expiration.",
+        "Generate alerts.",
+        "Test refresh.",
+        "Test expiration recovery."
+      ]
+    },
+    {
+      "phase": 7,
+      "name": "Hardening",
+      "tasks": [
+        "Tailscale ACLs.",
+        "Backups.",
+        "Monitoring.",
+        "UPS.",
+        "Automatic service restart.",
+        "Credential hardening.",
+        "Disaster recovery."
+      ]
+    }
+  ],
+  "testing_plan": {
+    "functional": [
+      "Build from clean checkout.",
+      "Produce valid IPA.",
+      "Install on iPhone.",
+      "Launch app.",
+      "Publish update.",
+      "Install update.",
+      "Refresh provisioning."
+    ],
+    "network": [
+      "LAN repository access.",
+      "Tailscale repository access.",
+      "Remote iPhone access.",
+      "Tailscale failure recovery."
+    ],
+    "security": [
+      "Verify public Internet cannot reach repository.",
+      "Verify unauthorized tailnet devices cannot access repository.",
+      "Verify Linux CI cannot retrieve Apple credentials.",
+      "Verify IPA integrity."
+    ],
+    "expiration": [
+      "Observe provisioning expiration metadata.",
+      "Perform refresh before expiration.",
+      "Verify application remains launchable.",
+      "Test recovery after intentional expiration."
+    ],
+    "disaster_recovery": [
+      "Restore repository from NAS backup.",
+      "Rebuild from Git.",
+      "Replace Mac mini.",
+      "Reauthenticate Apple Account.",
+      "Reinstall refresh infrastructure."
+    ]
+  },
+  "security_do_not_do": [
+    "Do not put Apple passwords in Git.",
+    "Do not put Apple passwords in plaintext CI configuration.",
+    "Do not expose Apple authentication services publicly.",
+    "Do not expose AltServer publicly.",
+    "Do not expose the IPA repository publicly unless explicitly required.",
+    "Do not trust arbitrary third-party signing services with Apple credentials.",
+    "Do not forge provisioning profiles.",
+    "Do not forge Apple certificates.",
+    "Do not attempt to cryptographically bypass provisioning expiration.",
+    "Do not assume a VPN IP address creates regional eligibility.",
+    "Do not falsify Apple Account country/region information solely to bypass regional rules."
+  ],
+  "decision_log": [
+    {
+      "decision": "Do not pay Apple $99/year initially.",
+      "reason": "User explicitly wants a $0 development/distribution workflow."
+    },
+    {
+      "decision": "Do not jailbreak.",
+      "reason": "Explicit user constraint."
+    },
+    {
+      "decision": "Use free Personal Team.",
+      "reason": "Only practical official zero-cost Apple development identity."
+    },
+    {
+      "decision": "Automate the 7-day maintenance rather than bypass it.",
+      "reason": "Provisioning validity is controlled by Apple."
+    },
+    {
+      "decision": "Use Mac mini for Apple-specific operations.",
+      "reason": "Always-on and capable of running Xcode."
+    },
+    {
+      "decision": "Use Linux VMs for generic infrastructure.",
+      "reason": "Excellent for CI, Git, monitoring, APIs, and orchestration."
+    },
+    {
+      "decision": "Use NAS for persistent IPA artifacts.",
+      "reason": "Existing storage infrastructure."
+    },
+    {
+      "decision": "Use Tailscale rather than public Internet.",
+      "reason": "Already available and eliminates need for public DNS/domain/port forwarding."
+    },
+    {
+      "decision": "Use AltStore-compatible infrastructure initially.",
+      "reason": "Avoid unnecessary reinvention of the iOS installation layer."
+    },
+    {
+      "decision": "Keep Apple credentials on Mac mini.",
+      "reason": "Reduce credential exposure."
+    }
+  ],
+  "alternative_architectures_considered": [
+    {
+      "architecture": "Public VPS signing server",
+      "decision": "Rejected",
+      "reason": "Unnecessary because user owns Macs and uses Tailscale."
+    },
+    {
+      "architecture": "Linux-only Apple signing infrastructure",
+      "decision": "Deferred",
+      "reason": "More complexity than necessary."
+    },
+    {
+      "architecture": "Public IPA website",
+      "decision": "Rejected",
+      "reason": "Tailscale provides sufficient private connectivity."
+    },
+    {
+      "architecture": "Public domain",
+      "decision": "Rejected",
+      "reason": "Not needed."
+    },
+    {
+      "architecture": "Third-party signing service",
+      "decision": "Rejected",
+      "reason": "Credential/security concerns and unnecessary given owned Macs."
+    },
+    {
+      "architecture": "Jailbreak",
+      "decision": "Rejected",
+      "reason": "Explicitly excluded."
+    },
+    {
+      "architecture": "EU/Japan/Brazil account/address workaround",
+      "decision": "Rejected",
+      "reason": "Regional eligibility is more than VPN/IP/address and should not be fabricated."
+    },
+    {
+      "architecture": "Custom iOS installation manager",
+      "decision": "Deferred",
+      "reason": "AltStore provides an existing foundation."
+    }
+  ],
+  "recommended_end_state": {
+    "developer_experience": "Push code from MacBook Pro and let infrastructure build/publish it automatically.",
+    "infrastructure": {
+      "source": "Git",
+      "orchestration": "Linux",
+      "Apple_build": "Mac mini",
+      "Apple_signing": "Xcode/Personal Team",
+      "storage": "NAS",
+      "distribution": "Private HTTPS",
+      "network": "Tailscale",
+      "iOS_manager": "AltStore-compatible",
+      "monitoring": "Linux"
+    },
+    "public_internet": false,
+    "public_domain": false,
+    "jailbreak": false,
+    "paid_apple_developer_program": false,
+    "manual_intervention": "Only when Apple's free provisioning/authentication/device constraints require it.",
+    "ultimate_limitation": "Apple's free Personal Team provisioning rules."
+  },
+  "future_upgrade_path": {
+    "when_to_pay_apple": [
+      "Need TestFlight.",
+      "Need 5-20+ stable external testers.",
+      "Need Ad Hoc distribution.",
+      "Need longer-lived provisioning.",
+      "Need App Store publication.",
+      "Manual free-provisioning maintenance becomes more annoying than $99/year."
+    ],
+    "benefit": "The architecture does not need to be thrown away. The Mac mini build/signing pipeline and private artifact repository can remain useful even after joining the paid program."
+  },
+  "references": [
+    {
+      "name": "Apple Developer Account",
+      "url": "https://developer.apple.com/help/account/basics/about-your-developer-account",
+      "purpose": "Personal Team limits and developer account information"
+    },
+    {
+      "name": "Apple Developer Program",
+      "url": "https://developer.apple.com/programs/",
+      "purpose": "Paid developer membership information"
+    },
+    {
+      "name": "Apple Developer Membership Comparison",
+      "url": "https://developer.apple.com/support/compare-memberships/",
+      "purpose": "Comparison of free and paid developer capabilities"
+    },
+    {
+      "name": "Apple Network Extension",
+      "url": "https://developer.apple.com/documentation/networkextension",
+      "purpose": "iOS system-level networking/VPN architecture"
+    },
+    {
+      "name": "Tailscale iOS/tvOS Documentation",
+      "url": "https://tailscale.com/docs/integrations/mdm/ios",
+      "purpose": "Tailscale iOS networking/deployment"
+    },
+    {
+      "name": "AltStore",
+      "url": "https://altstore.io/",
+      "purpose": "AltStore project"
+    },
+    {
+      "name": "AltStore Developer Documentation",
+      "url": "https://faq.altstore.io/developers/make-a-source",
+      "purpose": "Self-hosted source/catalog format"
+    },
+    {
+      "name": "AltStore GitHub",
+      "url": "https://github.com/altstoreio/AltStore",
+      "purpose": "Open-source implementation"
+    },
+    {
+      "name": "AltServer-Linux",
+      "url": "https://github.com/NyaMisty/AltServer-Linux",
+      "purpose": "Community Linux implementation demonstrating alternative server-side deployment possibilities"
+    },
+    {
+      "name": "SideStore",
+      "url": "https://github.com/SideStore/SideStore",
+      "purpose": "Alternative sideloading architecture for future research"
+    },
+    {
+      "name": "Sideloadly",
+      "url": "https://sideloadly.io/",
+      "purpose": "Alternative IPA sideloading tool"
+    }
+  ],
+  "open_questions": [
+    "Which exact iPhone model and iOS version will be the primary target?",
+    "Which macOS version is running on the Mac mini?",
+    "Which Xcode version is installed?",
+    "Is the Mac mini Apple Silicon or Intel?",
+    "Which Git/CI platform is already available on the Linux VMs?",
+    "Does the NAS support HTTPS directly, or should the Mac mini serve the repository?",
+    "Is Tailscale system-level connectivity enabled on the iPhone, or only embedded/application-level Tailscale?",
+    "Which iOS app technology is being used: Swift/SwiftUI, UIKit, Flutter, React Native, Unity, etc.?",
+    "Does the application require special entitlements such as Push Notifications, Network Extension, VPN, HealthKit, associated domains, or other restricted capabilities?",
+    "Does the user need the application installed on more than three devices simultaneously?",
+    "Does the user need remote refresh while the iPhone is away from the home LAN?",
+    "Should the system support multiple applications or initially only one?",
+    "Should builds be triggered on every commit, only tags, or manually?",
+    "How long should IPA artifacts be retained?",
+    "What notification system should be used for build/provisioning failures?"
+  ],
+  "recommended_next_action": {
+    "priority": "high",
+    "description": "Build a minimal end-to-end proof of concept before implementing the full CI system.",
+    "steps": [
+      "1. Confirm the Mac mini's macOS and Xcode versions.",
+      "2. Sign into Xcode with the normal Apple Account.",
+      "3. Build a trivial test application.",
+      "4. Install it on the primary iPhone using Personal Team signing.",
+      "5. Inspect the generated provisioning profile and expiration.",
+      "6. Install and configure the chosen AltStore/refresh mechanism.",
+      "7. Confirm that the iPhone can reach a private Tailscale-hosted HTTP/HTTPS repository.",
+      "8. Publish a test IPA and source catalog.",
+      "9. Install the IPA through the chosen mechanism.",
+      "10. Verify refresh behavior.",
+      "11. Only after that works, implement Linux CI and automated xcodebuild."
+    ]
+  },
+  "final_architecture_statement": "The preferred solution is a completely private, self-hosted iOS build and sideload infrastructure in which Linux handles generic CI/orchestration, the always-on Mac mini handles Xcode and Apple's legitimate signing/provisioning operations, the NAS stores immutable IPAs and build artifacts, Tailscale provides private connectivity without a public domain or public server, and AltStore/AltServer or a compatible mechanism handles iOS-side installation and refresh. The system should automate Apple's free provisioning workflow rather than attempting to bypass Apple's signing or expiration controls."
+}
