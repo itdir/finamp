@@ -385,6 +385,10 @@ upload_github() {
     exit 1
   fi
   parse_pubspec_version
+  local commit notes floating_notes
+  commit="$(git rev-parse HEAD)"
+  notes="${NOTES:-Sideload OTA ${VERSION_NAME}+${VERSION_BUILD}}"
+  floating_notes="Floating assets for in-app OTA (${VERSION_NAME}+${VERSION_BUILD}). Same binaries as ${GIT_TAG}."
   local assets=()
   [[ -f "$DIST_DIR/finamp-android-profile.apk" ]] && assets+=("$DIST_DIR/finamp-android-profile.apk")
   [[ -f "$DIST_DIR/finamp-ios-profile.ipa" ]] && assets+=("$DIST_DIR/finamp-ios-profile.ipa")
@@ -393,25 +397,35 @@ upload_github() {
   if gh release view "$GIT_TAG" --repo "$REPO" >/dev/null 2>&1; then
     echo "==> Updating existing release $GIT_TAG"
     gh release upload "$GIT_TAG" "${assets[@]}" --repo "$REPO" --clobber
+    gh release edit "$GIT_TAG" --repo "$REPO" --notes "$notes"
   else
-    echo "==> Creating release $GIT_TAG"
+    echo "==> Creating release $GIT_TAG (target $commit)"
     gh release create "$GIT_TAG" "${assets[@]}" \
       --repo "$REPO" \
       --title "$GIT_TAG" \
-      --notes "${NOTES:-Sideload OTA ${VERSION_NAME}+${VERSION_BUILD}}"
+      --notes "$notes" \
+      --target "$commit"
   fi
 
-  # Floating tag/release for stable download URLs
+  # Floating tag/release for stable download URLs. Always refresh notes + retarget
+  # the tag — upload --clobber alone leaves stale body text and Source zip.
   if gh release view "$FLOATING_TAG" --repo "$REPO" >/dev/null 2>&1; then
-    echo "==> Refreshing floating release $FLOATING_TAG"
+    echo "==> Refreshing floating release $FLOATING_TAG → $commit"
     gh release upload "$FLOATING_TAG" "${assets[@]}" --repo "$REPO" --clobber
+    gh release edit "$FLOATING_TAG" --repo "$REPO" \
+      --title "Sideload latest" \
+      --notes "$floating_notes"
   else
-    echo "==> Creating floating release $FLOATING_TAG"
+    echo "==> Creating floating release $FLOATING_TAG (target $commit)"
     gh release create "$FLOATING_TAG" "${assets[@]}" \
       --repo "$REPO" \
       --title "Sideload latest" \
-      --notes "Floating assets for in-app OTA. Pointed at ${GIT_TAG}."
+      --notes "$floating_notes" \
+      --target "$commit"
   fi
+  echo "==> Pointing tag $FLOATING_TAG at $commit"
+  git tag -f "$FLOATING_TAG" "$commit"
+  git push -f "origin" "refs/tags/${FLOATING_TAG}"
   echo "✓ Published to https://github.com/${REPO}/releases"
 }
 

@@ -40,6 +40,11 @@ release/tag **`sideload-latest`** so the app’s baked URL stays stable:
 
 `https://github.com/itdir/finamp/releases/download/sideload-latest/latest.json`
 
+Each publish retargets `sideload-latest` to the commit being built and rewrites
+that release’s notes to the current `version+build` (asset `--clobber` alone
+leaves stale notes / Source zip). Version releases are created with
+`--target` set to `HEAD` so GitHub does not pin them to `main` by default.
+
 Useful flags: `SKIP_IOS=1`, `SKIP_ANDROID=1`, `SKIP_UPLOAD=1`, `NOTES='…'`,
 `GITHUB_REPO=itdir/finamp`.
 
