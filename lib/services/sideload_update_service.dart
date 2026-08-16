@@ -122,6 +122,42 @@ class SideloadManifestException implements Exception {
   String toString() => message;
 }
 
+enum SideloadBuildRelation { older, same, newer }
+
+/// Compares the integer build from the update feed with the installed build.
+///
+/// Version labels are intentionally not used for install safety: Android's
+/// versionCode and the manifest's build are the canonical ordering.
+SideloadBuildRelation sideloadBuildRelation({
+  required int remoteBuild,
+  required int localBuild,
+}) {
+  if (remoteBuild < localBuild) return SideloadBuildRelation.older;
+  if (remoteBuild == localBuild) return SideloadBuildRelation.same;
+  return SideloadBuildRelation.newer;
+}
+
+bool sideloadBuildCanInstall({
+  required int remoteBuild,
+  required int localBuild,
+  required bool allowSameBuild,
+}) {
+  final relation = sideloadBuildRelation(
+    remoteBuild: remoteBuild,
+    localBuild: localBuild,
+  );
+  return relation == SideloadBuildRelation.newer ||
+      (allowSameBuild && relation == SideloadBuildRelation.same);
+}
+
+String sideloadDowngradeBlockedMessage({
+  required int remoteBuild,
+  required int localBuild,
+}) =>
+    'Update blocked: the update feed has build $remoteBuild, but build '
+    '$localBuild is installed. Publish build $localBuild or newer before '
+    'trying again.';
+
 /// Fork-only sideload OTA: fetch [latest.json], compare integer build, download
 /// + verify, Android silent PackageInstaller; iOS notify / SideStore / USB only.
 class SideloadUpdateService {
@@ -437,7 +473,11 @@ class SideloadUpdateService {
       }
 
       final path = await _downloadAndroidApk(manifest);
-      final install = await installAndroidApk(path, requireUserAction: false);
+      final install = await installAndroidApk(
+        path,
+        requireUserAction: false,
+        remoteBuild: manifest.build,
+      );
       lastCheckAt = DateTime.now();
       if (install['ok'] == true) {
         final r = SideloadCheckResult(
@@ -595,7 +635,32 @@ class SideloadUpdateService {
   Future<Map<String, dynamic>> installAndroidApk(
     String path, {
     required bool requireUserAction,
+    required int remoteBuild,
+    bool allowSameBuild = false,
   }) async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    final localBuild = int.tryParse(packageInfo.buildNumber) ?? 0;
+    final relation = sideloadBuildRelation(
+      remoteBuild: remoteBuild,
+      localBuild: localBuild,
+    );
+    if (!sideloadBuildCanInstall(
+      remoteBuild: remoteBuild,
+      localBuild: localBuild,
+      allowSameBuild: allowSameBuild,
+    )) {
+      final isOlder = relation == SideloadBuildRelation.older;
+      return {
+        'ok': false,
+        'status': isOlder ? 'downgradeBlocked' : 'alreadyInstalled',
+        'message': isOlder
+            ? sideloadDowngradeBlockedMessage(
+                remoteBuild: remoteBuild,
+                localBuild: localBuild,
+              )
+            : 'Build $localBuild is already installed.',
+      };
+    }
     try {
       // The native side parks this call until PackageInstaller broadcasts a
       // status. If that broadcast never arrives — process death, a dismissed
@@ -688,10 +753,34 @@ class SideloadUpdateService {
 
       final manifest = await fetchManifest();
       lastManifest = manifest;
+      if (!sideloadBuildCanInstall(
+        remoteBuild: manifest.build,
+        localBuild: localBuild,
+        allowSameBuild: true,
+      )) {
+        final r = SideloadCheckResult(
+          outcome: SideloadCheckOutcome.error,
+          manifest: manifest,
+          localBuild: localBuild,
+          message: sideloadDowngradeBlockedMessage(
+            remoteBuild: manifest.build,
+            localBuild: localBuild,
+          ),
+        );
+        lastResult = r;
+        lastError = r.message;
+        lastCheckAt = DateTime.now();
+        return r;
+      }
       // Same build is intentional — USB/adb installs don't make Finamp the
       // installer of record; PackageInstaller must run once with user confirm.
       final path = await _downloadAndroidApk(manifest);
-      final install = await installAndroidApk(path, requireUserAction: true);
+      final install = await installAndroidApk(
+        path,
+        requireUserAction: true,
+        remoteBuild: manifest.build,
+        allowSameBuild: true,
+      );
       lastCheckAt = DateTime.now();
       if (install['ok'] == true) {
         final r = SideloadCheckResult(
@@ -756,7 +845,11 @@ class SideloadUpdateService {
         apkPath: pending.apkPath,
       );
     }
-    final install = await installAndroidApk(pending!.apkPath!, requireUserAction: false);
+    final install = await installAndroidApk(
+      pending!.apkPath!,
+      requireUserAction: false,
+      remoteBuild: pending.manifest!.build,
+    );
     if (install['ok'] == true) {
       return SideloadCheckResult(
         outcome: SideloadCheckOutcome.installed,

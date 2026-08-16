@@ -82,6 +82,18 @@ immediately.
    does. Needed once so later overnight updates can install quietly.)
 3. After that, overnight automatic updates can run quietly.
 
+The published manifest must be the **same build or newer** than the installed
+app before step 2 can download or install anything. An older feed is blocked
+with both build numbers shown. This also protects deferred APKs that were
+downloaded before a newer build was installed by USB. This guard ships in
+**0.9.25-sideload.9+135** and later.
+
+Normal automatic/manual updates require a strictly newer build. Only
+**Finish setup** may reinstall the same build, because that one confirmation is
+what makes Finamp the installer of record. A future stable/development channel
+picker may choose a different manifest, but it must keep this integer build
+guard; selecting a channel must never authorize a downgrade.
+
 Emergency: `adb install -r dist/finamp-android-profile.apk` may require
 finishing setup again (step 2).
 
