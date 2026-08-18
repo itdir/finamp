@@ -15,6 +15,13 @@ private func makeFCPChannelId(event: String) -> String {
     return "\(FCPChannelId)/\(event)"
 }
 
+/// SharedEngine is no longer started (phone isolate owns playback). Skip
+/// method-channel notifies unless that engine actually has a Dart isolate.
+private func sharedEngineMessenger() -> FlutterBinaryMessenger? {
+    guard flutterEngine.isolateId != nil else { return nil }
+    return flutterEngine.binaryMessenger
+}
+
 @available(iOS 14.0, *)
 @objc(CarPlaySceneDelegate)
 class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate, CPInterfaceControllerDelegate {
@@ -34,19 +41,15 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate, CPI
         CarPlaySceneDelegate.interfaceController = interfaceController
         interfaceController.delegate = self
 
-        // Send connection event to Flutter using the plugin's event channel
-        let eventChannel = FlutterEventChannel(
-            name: makeFCPChannelId(event: "onCarplayConnectionChange"),
-            binaryMessenger: flutterEngine.binaryMessenger
-        )
+        guard let messenger = sharedEngineMessenger() else {
+            NSLog("[FINAMP-CarPlay] skip notify — SharedEngine is not running (phone isolate owns playback)")
+            return
+        }
 
-        // Also try method channel approach
         let methodChannel = FlutterMethodChannel(
             name: makeFCPChannelId(event: ""),
-            binaryMessenger: flutterEngine.binaryMessenger
+            binaryMessenger: messenger
         )
-
-        // Notify Flutter that CarPlay connected
         methodChannel.invokeMethod("onCarplayConnectionChange", arguments: ["status": "connected"])
 
         NSLog("[FINAMP-CarPlay] CarPlay connected successfully - notified Flutter")
@@ -57,12 +60,13 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate, CPI
                                    didDisconnectInterfaceController interfaceController: CPInterfaceController) {
         NSLog("[FINAMP-CarPlay] didDisconnectInterfaceController")
 
-        // Notify Flutter of disconnection
-        let methodChannel = FlutterMethodChannel(
-            name: makeFCPChannelId(event: ""),
-            binaryMessenger: flutterEngine.binaryMessenger
-        )
-        methodChannel.invokeMethod("onCarplayConnectionChange", arguments: ["status": "disconnected"])
+        if let messenger = sharedEngineMessenger() {
+            let methodChannel = FlutterMethodChannel(
+                name: makeFCPChannelId(event: ""),
+                binaryMessenger: messenger
+            )
+            methodChannel.invokeMethod("onCarplayConnectionChange", arguments: ["status": "disconnected"])
+        }
 
         interfaceController.delegate = nil
         CarPlaySceneDelegate.interfaceController = nil
@@ -70,26 +74,26 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate, CPI
         NSLog("[FINAMP-CarPlay] CarPlay disconnected")
     }
 
-    // Scene lifecycle events
     func sceneDidBecomeActive(_ scene: UIScene) {
         NSLog("[FINAMP-CarPlay] sceneDidBecomeActive")
+        guard let messenger = sharedEngineMessenger() else { return }
         let methodChannel = FlutterMethodChannel(
             name: makeFCPChannelId(event: ""),
-            binaryMessenger: flutterEngine.binaryMessenger
+            binaryMessenger: messenger
         )
         methodChannel.invokeMethod("onCarplayConnectionChange", arguments: ["status": "connected"])
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         NSLog("[FINAMP-CarPlay] sceneDidEnterBackground")
+        guard let messenger = sharedEngineMessenger() else { return }
         let methodChannel = FlutterMethodChannel(
             name: makeFCPChannelId(event: ""),
-            binaryMessenger: flutterEngine.binaryMessenger
+            binaryMessenger: messenger
         )
         methodChannel.invokeMethod("onCarplayConnectionChange", arguments: ["status": "background"])
     }
 
-    // CPInterfaceControllerDelegate method
     func templateDidDisappear(_ template: CPTemplate, animated: Bool) {
         NSLog("[FINAMP-CarPlay] templateDidDisappear")
     }
