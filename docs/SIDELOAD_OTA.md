@@ -93,6 +93,9 @@ with both build numbers shown. This also protects deferred APKs that were
 downloaded before a newer build was installed by USB. This guard ships in
 **0.9.25-sideload.9+135** and later.
 
+Car / Bluetooth skip (steering-wheel next/previous) is wired to the phone
+isolate in **0.9.25-sideload.10+136** and later.
+
 Normal automatic/manual updates require a strictly newer build. Only
 **Finish setup** may reinstall the same build, because that one confirmation is
 what makes Finamp the installer of record. A future stable/development channel
@@ -131,6 +134,11 @@ button appears only then — it is not a setup guide for SideStore itself.
 
 Weekly / 7-day personal cert refresh is still required; version OTA does not
 refresh code signing.
+
+Bluetooth / car skip buttons use iOS `MPRemoteCommandCenter` on the **phone**
+Flutter isolate. A second headless engine must not register `audio_service`
+first (that was stealing skip). See [IOS_SIDELOAD_DEBUG.md](IOS_SIDELOAD_DEBUG.md)
+§ UIScene.
 
 Longer-term ideas for private Mac-mini signing, Tailscale IPA hosting, and
 automated Personal Team refresh live under

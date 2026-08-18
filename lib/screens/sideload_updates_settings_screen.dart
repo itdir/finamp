@@ -127,11 +127,8 @@ class _SideloadUpdatesSettingsScreenState
     final l10n = AppLocalizations.of(context)!;
     switch (result.outcome) {
       case SideloadCheckOutcome.upToDate:
-        if (m != null &&
-            result.localBuild != null &&
-            m.build < result.localBuild!) {
-          return 'Installed build ${result.localBuild} is newer than the '
-              'update feed (${m.version}, build ${m.build})';
+        if (result.message != null && result.message!.isNotEmpty) {
+          return result.message!;
         }
         return l10n.sideloadWorkerUpToDate +
             (m != null ? ' (${m.version})' : '');
