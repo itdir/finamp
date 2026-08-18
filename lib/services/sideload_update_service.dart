@@ -158,6 +158,16 @@ String sideloadDowngradeBlockedMessage({
     '$localBuild is installed. Publish build $localBuild or newer before '
     'trying again.';
 
+/// User-facing copy when the phone was installed ahead of the published feed
+/// (for example USB Profile install before `publish-sideload-release.sh`).
+String sideloadAheadOfFeedMessage({
+  required int localBuild,
+  required SideloadManifest manifest,
+}) =>
+    'Up to date on this device (build $localBuild). '
+    'The update feed is still on ${manifest.version} (build ${manifest.build}) — '
+    'nothing to download until a newer build is published.';
+
 /// Fork-only sideload OTA: fetch [latest.json], compare integer build, download
 /// + verify, Android silent PackageInstaller; iOS notify / SideStore / USB only.
 class SideloadUpdateService {
@@ -394,10 +404,20 @@ class SideloadUpdateService {
       final manifest = await fetchManifest();
       lastManifest = manifest;
       if (manifest.build <= localBuild) {
+        final relation = sideloadBuildRelation(
+          remoteBuild: manifest.build,
+          localBuild: localBuild,
+        );
         final r = SideloadCheckResult(
           outcome: SideloadCheckOutcome.upToDate,
           manifest: manifest,
           localBuild: localBuild,
+          message: relation == SideloadBuildRelation.older
+              ? sideloadAheadOfFeedMessage(
+                  localBuild: localBuild,
+                  manifest: manifest,
+                )
+              : null,
         );
         lastResult = r;
         lastCheckAt = DateTime.now();
