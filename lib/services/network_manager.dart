@@ -98,7 +98,12 @@ Future<void> _onConnectivityChange(List<ConnectivityResult>? connections) async 
 Future<void> _resumeEmbeddedTailscaleIfNeeded() async {
   try {
     if (!FinampSettingsHelper.finampSettings.useEmbeddedTailscale) return;
-    await EmbeddedTailscaleService.ensureRunning();
+    // Prefer heal over ensureRunning: after a radio change the node often
+    // still reports Running while UDP/DERP paths are dead, and ensureRunning
+    // no-ops in that case. Dedicated watching also lives in
+    // EmbeddedTailscaleService.startNetworkWatching (Auto Offline may pause
+    // this listener when disabled).
+    await EmbeddedTailscaleService.healAfterNetworkChange();
   } catch (e) {
     _networkAutomationLogger.warning("tsnet resume after network change: $e");
   }

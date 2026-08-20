@@ -91,7 +91,29 @@ class FinampHttpClient extends http.BaseClient {
     if (_useEmbeddedTs && !EmbeddedTailscaleService.isRunning) {
       _log.warning('useEmbeddedTailscale is on but tsnet is not running; using default client');
     }
-    return _active.send(request);
+    try {
+      return await _active.send(request);
+    } catch (e) {
+      // Running-but-dead after a radio change: ensureRunning no-ops, so rebuild
+      // paths once and retry buffered requests only (StreamedRequest bodies
+      // cannot be safely resent).
+      if (!_useEmbeddedTs || !looksLikeTailnetHost(request.url) || request is! http.Request) {
+        rethrow;
+      }
+      _log.warning(
+        'MagicDNS request failed; healing embedded Tailscale then retrying once: $e',
+      );
+      final healed = await EmbeddedTailscaleService.healAfterNetworkChange(forceRestart: true);
+      if (!healed) rethrow;
+      final retry = http.Request(request.method, request.url)
+        ..bodyBytes = request.bodyBytes
+        ..encoding = request.encoding
+        ..followRedirects = request.followRedirects
+        ..maxRedirects = request.maxRedirects
+        ..persistentConnection = request.persistentConnection;
+      retry.headers.addAll(request.headers);
+      return _active.send(retry);
+    }
   }
 
   @override

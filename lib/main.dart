@@ -385,6 +385,10 @@ Future<void> _setupProviders() async {
 
   DataSourceService.create();
   AutoOffline.startWatching();
+  // Always watch connectivity for embedded Tailscale — Auto Offline may pause
+  // its own listener when disabled, which left MagicDNS users stuck after
+  // Wi‑Fi ↔ cellular until a full app restart.
+  EmbeddedTailscaleService.startNetworkWatching();
 
   unawaited(
     Stream<void>.periodic(Duration(seconds: 1)).forEach((_) {

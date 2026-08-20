@@ -2,14 +2,40 @@ import 'dart:async';
 import 'dart:ffi' as ffi;
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:tailscale/tailscale.dart';
 
 import 'finamp_secrets.dart';
+import 'finamp_settings_helper.dart';
+
+/// What [EmbeddedTailscaleService.healAfterNetworkChange] should do.
+enum SideloadTsnetHealAction {
+  /// Node looks fine; leave it alone.
+  none,
+
+  /// Node is not Running — call resume [EmbeddedTailscaleService.ensureRunning].
+  resume,
+
+  /// Node reports Running (or is unhealthy) but paths may be stale — `down` + resume `up`.
+  restart,
+}
+
+/// Pure decision helper for network-change / dial-failure healing.
+SideloadTsnetHealAction sideloadTsnetHealAction({
+  required bool isRunning,
+  required bool isHealthy,
+  required bool forceRestart,
+}) {
+  if (!isRunning) return SideloadTsnetHealAction.resume;
+  if (forceRestart || !isHealthy) return SideloadTsnetHealAction.restart;
+  return SideloadTsnetHealAction.none;
+}
 
 /// Lifecycle wrapper around [package:tailscale] userspace tsnet.
 ///
@@ -41,6 +67,13 @@ class EmbeddedTailscaleService {
   static Uri? get authUrl => _lastStatus?.authUrl;
 
   static Future<bool>? _ensureRunningInFlight;
+  static Future<bool>? _healInFlight;
+  static DateTime? _lastHealAt;
+  static StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  static AppLifecycleListener? _lifecycleListener;
+
+  /// Minimum gap between forced path rebuilds (network flaps fire many events).
+  static const _healCooldown = Duration(seconds: 3);
 
   /// Resume tsnet if the node dropped (common after Wi‑Fi ↔ cellular).
   ///
@@ -48,11 +81,120 @@ class EmbeddedTailscaleService {
   /// path (an HTTP request waiting to be sent) should pass `allowEnroll: false`
   /// so a stalled control-plane registration cannot block them; enrollment
   /// belongs to startup and Settings → Embedded Tailscale.
+  ///
+  /// When [isRunning] is already true this returns immediately. That is the
+  /// wrong tool after a radio change: the node can stay `Running` while UDP
+  /// paths / Android netmon snapshots are stale — use [healAfterNetworkChange].
   static Future<bool> ensureRunning({Duration timeout = const Duration(seconds: 12), bool allowEnroll = true}) {
     if (isRunning) return Future.value(true);
     return _ensureRunningInFlight ??= _ensureRunningBody(timeout: timeout, allowEnroll: allowEnroll).whenComplete(() {
       _ensureRunningInFlight = null;
     });
+  }
+
+  /// Keep tsnet usable across Wi‑Fi ↔ cellular / VPN flaps.
+  ///
+  /// Independent of Auto Offline: that feature pauses the shared connectivity
+  /// listener when disabled, which left MagicDNS-only users stuck until a
+  /// process restart. Call once after settings are loaded.
+  static void startNetworkWatching() {
+    _connectivitySub ??= Connectivity().onConnectivityChanged.listen((results) {
+      if (results.contains(ConnectivityResult.none)) return;
+      unawaited(healAfterNetworkChange());
+    });
+    _lifecycleListener ??= AppLifecycleListener(
+      onResume: () {
+        unawaited(healAfterNetworkChange());
+      },
+    );
+  }
+
+  /// Stop listening (tests / toggle off). Does not bring the node down.
+  static Future<void> stopNetworkWatching() async {
+    await _connectivitySub?.cancel();
+    _connectivitySub = null;
+    _lifecycleListener?.dispose();
+    _lifecycleListener = null;
+  }
+
+  /// After the OS network path changes, rebuild tsnet egress if needed.
+  ///
+  /// `package:tailscale` treats [Tailscale.up] as a no-op while already
+  /// Running, and Android's host interface snapshot is only pushed at
+  /// start — so a soft [ensureRunning] never recovers a dead path that still
+  /// reports Running. Force `down` + resume `up` when [forceRestart] is true
+  /// (network-change / failed dial) or health warnings are present.
+  static Future<bool> healAfterNetworkChange({bool forceRestart = true}) {
+    return _healInFlight ??= _healAfterNetworkChangeBody(forceRestart: forceRestart).whenComplete(() {
+      _healInFlight = null;
+    });
+  }
+
+  static Future<bool> _healAfterNetworkChangeBody({required bool forceRestart}) async {
+    try {
+      if (!FinampSettingsHelper.finampSettings.useEmbeddedTailscale) {
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
+
+    final last = _lastHealAt;
+    if (last != null && DateTime.now().difference(last) < _healCooldown) {
+      _log.fine('healAfterNetworkChange: within cooldown, skipping');
+      return isRunning;
+    }
+
+    try {
+      await refreshStatus();
+    } catch (e, st) {
+      _log.warning('healAfterNetworkChange: status refresh failed', e, st);
+    }
+
+    final status = _lastStatus;
+    final action = sideloadTsnetHealAction(
+      isRunning: status?.isRunning ?? false,
+      isHealthy: status?.isHealthy ?? false,
+      forceRestart: forceRestart,
+    );
+    _log.info(
+      'healAfterNetworkChange: action=$action '
+      'state=${status?.state} healthy=${status?.isHealthy} '
+      'health=${status?.health}',
+    );
+
+    switch (action) {
+      case SideloadTsnetHealAction.none:
+        return true;
+      case SideloadTsnetHealAction.resume:
+        _lastHealAt = DateTime.now();
+        return ensureRunning(allowEnroll: false);
+      case SideloadTsnetHealAction.restart:
+        _lastHealAt = DateTime.now();
+        return _restartNodeResumeOnly();
+    }
+  }
+
+  static Future<bool> _restartNodeResumeOnly() async {
+    try {
+      if (_initialized) {
+        await Tailscale.instance.down();
+        try {
+          _lastStatus = await Tailscale.instance.status();
+        } catch (_) {
+          _lastStatus = TailscaleStatus.stopped;
+        }
+      }
+    } catch (e, st) {
+      _log.warning('heal: down() before restart failed', e, st);
+    }
+    try {
+      final status = await up(resumeOnly: true);
+      return status.isRunning;
+    } catch (e, st) {
+      _log.warning('heal: resume up() after down failed', e, st);
+      return false;
+    }
   }
 
   static Future<bool> _ensureRunningBody({required Duration timeout, required bool allowEnroll}) async {
