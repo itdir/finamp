@@ -106,15 +106,17 @@ address again — Test on cellular then pinged LAN and both checks failed.
 
 **Cellular:** Local failing is expected. Public should pass if Embedded
 Tailscale is **Running** and the public field is actually `*.ts.net` (not the
-LAN IP). After a radio switch, Finamp **rebuilds** the userspace node
-(`down` + resume `up`) — a soft `ensureRunning` is not enough, because
+LAN IP). After a radio switch, Finamp **debounces ~2s** then **rebuilds**
+the userspace node (`down` + resume `up`). Healing immediately was wrong on
+Android: `NetworkInterface.list()` is often empty mid-handoff, so tsnet
+started with a fake fallback iface and then a cooldown blocked recovery.
+Failed MagicDNS HTTP calls bypass that cooldown and force another rebuild.
 `package:tailscale` treats `up()` as a no-op while status is still
 `Running`, and Android only refreshes the host interface snapshot at
-start. Connectivity watching for this path is **always on** when
-Embedded Tailscale is enabled (it does not depend on Auto Offline /
-prefer-local, which previously paused the shared listener). Failed
-MagicDNS HTTP calls also trigger one heal + retry. Public pings allow
-up to 15s (LAN pings stay at 3s).
+start — soft `ensureRunning` cannot recover alone. Connectivity watching
+is **always on** when Embedded Tailscale is enabled (independent of Auto
+Offline / prefer-local). Public pings allow up to 15s (LAN pings stay at
+3s).
 
 If Public still fails while Embedded Tailscale shows Running, confirm the
 public field is MagicDNS, then rebuild. Older builds used a plain `IOClient`
