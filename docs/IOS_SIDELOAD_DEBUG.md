@@ -120,4 +120,10 @@ show Untrusted Developer.
 
 Phone UI uses `FlutterSceneDelegate` + `FlutterImplicitEngineDelegate`
 ([migration guide](https://docs.flutter.dev/to/uiscene-migration)).
-CarPlay stays on Release via the shared `FlutterEngine` in `AppDelegate`.
+
+**Do not** `run()` a second `FlutterEngine` (“SharedEngine”) or call
+`GeneratedPluginRegistrant` on it. `audio_service` binds iOS
+`MPRemoteCommandCenter` to the **first** registrar only; a second isolate
+steals car / Bluetooth skip buttons from the player. CarPlay on Release uses
+`flutter_carplay.FlutterCarPlaySceneDelegate` plus the phone isolate’s plugin
+registration.

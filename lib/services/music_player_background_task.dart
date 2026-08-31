@@ -844,6 +844,14 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
     }
   }
 
+  /// Cars and some Bluetooth head units send skip-forward/rewind instead of
+  /// next/previous track. Treat those as track skips, not ±10s seeks.
+  @override
+  Future<void> fastForward() => skipToNext();
+
+  @override
+  Future<void> rewind() => skipToPrevious(forceSkip: true);
+
   @override
   Future<void> skipToNext() async {
     _audioServiceBackgroundTaskLogger.fine(
@@ -1276,9 +1284,10 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
         if (FinampSettingsHelper.finampSettings.showStopButtonOnMediaNotification)
           MediaControl.stop.copyWith(androidIcon: "drawable/baseline_stop_24"),
       ],
-      systemActions: FinampSettingsHelper.finampSettings.showSeekControlsOnMediaNotification
-          ? const {MediaAction.seek, MediaAction.seekForward, MediaAction.seekBackward}
-          : {},
+      systemActions: mediaNotificationSystemActions(
+        showSeekControls: FinampSettingsHelper.finampSettings.showSeekControlsOnMediaNotification,
+        isIOS: Platform.isIOS,
+      ),
       androidCompactActionIndices: const [0, 1, 2],
       processingState: const {
         ProcessingState.idle: AudioProcessingState.idle,
@@ -1617,4 +1626,15 @@ AudioServiceRepeatMode _audioServiceRepeatMode(LoopMode loopMode) {
     case LoopMode.all:
       return AudioServiceRepeatMode.all;
   }
+}
+
+/// Remote-center system actions. iOS omits hold-to-scan (`seekForward` /
+/// `seekBackward`) so car / Bluetooth skip stays next/previous track.
+Set<MediaAction> mediaNotificationSystemActions({
+  required bool showSeekControls,
+  required bool isIOS,
+}) {
+  if (!showSeekControls) return {};
+  if (isIOS) return const {MediaAction.seek};
+  return const {MediaAction.seek, MediaAction.seekForward, MediaAction.seekBackward};
 }

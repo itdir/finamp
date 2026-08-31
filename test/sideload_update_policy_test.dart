@@ -71,5 +71,27 @@ void main() {
       expect(message, contains('build 134 is installed'));
       expect(message, contains('Publish build 134 or newer'));
     });
+
+    test('ahead-of-feed message is reassuring, not a downgrade warning', () {
+      final message = sideloadAheadOfFeedMessage(
+        localBuild: 136,
+        manifest: SideloadManifest(
+          version: '0.9.25-sideload.9',
+          build: 135,
+          upstreamVersion: '0.9.25',
+          publishedAt: '2026-08-17T00:00:00Z',
+          notes: '',
+          androidApkUrl: '',
+          androidSha256: '',
+          androidSizeBytes: 0,
+        ),
+      );
+
+      expect(message, contains('Up to date on this device'));
+      expect(message, contains('build 136'));
+      expect(message, contains('build 135'));
+      expect(message, contains('nothing to download'));
+      expect(message, isNot(contains('newer than')));
+    });
   });
 }

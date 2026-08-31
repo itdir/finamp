@@ -2,14 +2,40 @@ import 'dart:async';
 import 'dart:ffi' as ffi;
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:tailscale/tailscale.dart';
 
 import 'finamp_secrets.dart';
+import 'finamp_settings_helper.dart';
+
+/// What [EmbeddedTailscaleService.healAfterNetworkChange] should do.
+enum SideloadTsnetHealAction {
+  /// Node looks fine; leave it alone.
+  none,
+
+  /// Node is not Running — call resume [EmbeddedTailscaleService.ensureRunning].
+  resume,
+
+  /// Node reports Running (or is unhealthy) but paths may be stale — `down` + resume `up`.
+  restart,
+}
+
+/// Pure decision helper for network-change / dial-failure healing.
+SideloadTsnetHealAction sideloadTsnetHealAction({
+  required bool isRunning,
+  required bool isHealthy,
+  required bool forceRestart,
+}) {
+  if (!isRunning) return SideloadTsnetHealAction.resume;
+  if (forceRestart || !isHealthy) return SideloadTsnetHealAction.restart;
+  return SideloadTsnetHealAction.none;
+}
 
 /// Lifecycle wrapper around [package:tailscale] userspace tsnet.
 ///
@@ -41,6 +67,18 @@ class EmbeddedTailscaleService {
   static Uri? get authUrl => _lastStatus?.authUrl;
 
   static Future<bool>? _ensureRunningInFlight;
+  static Future<bool>? _healInFlight;
+  static DateTime? _lastHealAt;
+  static StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  static AppLifecycleListener? _lifecycleListener;
+  static Timer? _connectivitySettleTimer;
+
+  /// Minimum gap between forced path rebuilds (network flaps fire many events).
+  static const _healCooldown = Duration(seconds: 8);
+
+  /// Wait for Android/iOS interfaces to finish switching before down+up.
+  /// Healing immediately often captures an empty/stale netmon snapshot.
+  static const _connectivitySettle = Duration(seconds: 2);
 
   /// Resume tsnet if the node dropped (common after Wi‑Fi ↔ cellular).
   ///
@@ -48,11 +86,197 @@ class EmbeddedTailscaleService {
   /// path (an HTTP request waiting to be sent) should pass `allowEnroll: false`
   /// so a stalled control-plane registration cannot block them; enrollment
   /// belongs to startup and Settings → Embedded Tailscale.
+  ///
+  /// When [isRunning] is already true this returns immediately. That is the
+  /// wrong tool after a radio change: the node can stay `Running` while UDP
+  /// paths / Android netmon snapshots are stale — use [healAfterNetworkChange].
   static Future<bool> ensureRunning({Duration timeout = const Duration(seconds: 12), bool allowEnroll = true}) {
     if (isRunning) return Future.value(true);
     return _ensureRunningInFlight ??= _ensureRunningBody(timeout: timeout, allowEnroll: allowEnroll).whenComplete(() {
       _ensureRunningInFlight = null;
     });
+  }
+
+  /// Keep tsnet usable across Wi‑Fi ↔ cellular / VPN flaps.
+  ///
+  /// Independent of Auto Offline: that feature pauses the shared connectivity
+  /// listener when disabled, which left MagicDNS-only users stuck until a
+  /// process restart. Call once after settings are loaded.
+  static void startNetworkWatching() {
+    _connectivitySub ??= Connectivity().onConnectivityChanged.listen((results) {
+      // During a handoff Android often emits `none` then the new radio.
+      // Debounce until the path looks usable, then heal after a settle delay
+      // so NetworkInterface.list() / netmon see the new addresses.
+      final usable = results.any(
+        (r) =>
+            r == ConnectivityResult.wifi ||
+            r == ConnectivityResult.mobile ||
+            r == ConnectivityResult.ethernet ||
+            r == ConnectivityResult.vpn ||
+            r == ConnectivityResult.other,
+      );
+      if (!usable) {
+        _log.info('connectivity → $results (waiting for usable path)');
+        return;
+      }
+      _log.info('connectivity → $results; scheduling tsnet heal in ${_connectivitySettle.inSeconds}s');
+      _connectivitySettleTimer?.cancel();
+      _connectivitySettleTimer = Timer(_connectivitySettle, () {
+        unawaited(healAfterNetworkChange(forceRestart: true));
+      });
+    });
+    _lifecycleListener ??= AppLifecycleListener(
+      onResume: () {
+        unawaited(healAfterNetworkChange(forceRestart: true));
+      },
+    );
+  }
+
+  /// Stop listening (tests / toggle off). Does not bring the node down.
+  static Future<void> stopNetworkWatching() async {
+    _connectivitySettleTimer?.cancel();
+    _connectivitySettleTimer = null;
+    await _connectivitySub?.cancel();
+    _connectivitySub = null;
+    _lifecycleListener?.dispose();
+    _lifecycleListener = null;
+  }
+
+  /// After the OS network path changes, rebuild tsnet egress if needed.
+  ///
+  /// `package:tailscale` treats [Tailscale.up] as a no-op while already
+  /// Running, and Android's host interface snapshot is only pushed at
+  /// start — so a soft [ensureRunning] never recovers a dead path that still
+  /// reports Running. Force `down` + resume `up` when [forceRestart] is true
+  /// (network-change / failed dial) or health warnings are present.
+  ///
+  /// Pass [ignoreCooldown]: true for dial/HTTP failures so a premature
+  /// connectivity heal cannot block recovery.
+  static Future<bool> healAfterNetworkChange({
+    bool forceRestart = true,
+    bool ignoreCooldown = false,
+  }) {
+    return _healInFlight ??= _healAfterNetworkChangeBody(
+      forceRestart: forceRestart,
+      ignoreCooldown: ignoreCooldown,
+    ).whenComplete(() {
+      _healInFlight = null;
+    });
+  }
+
+  static Future<bool> _healAfterNetworkChangeBody({
+    required bool forceRestart,
+    required bool ignoreCooldown,
+  }) async {
+    try {
+      if (!FinampSettingsHelper.finampSettings.useEmbeddedTailscale) {
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
+
+    final last = _lastHealAt;
+    if (!ignoreCooldown && last != null && DateTime.now().difference(last) < _healCooldown) {
+      _log.info(
+        'healAfterNetworkChange: within cooldown '
+        '(${DateTime.now().difference(last).inMilliseconds}ms ago), skipping',
+      );
+      return isRunning;
+    }
+
+    // On Android, wait briefly for a non-loopback address so start()'s
+    // host-network snapshot is not empty (which falls back to a fake iface).
+    if (Platform.isAndroid && forceRestart) {
+      await _waitForUsableAndroidInterface();
+    }
+
+    try {
+      await refreshStatus();
+    } catch (e, st) {
+      _log.warning('healAfterNetworkChange: status refresh failed', e, st);
+    }
+
+    final status = _lastStatus;
+    final action = sideloadTsnetHealAction(
+      isRunning: status?.isRunning ?? false,
+      isHealthy: status?.isHealthy ?? false,
+      forceRestart: forceRestart,
+    );
+    _log.info(
+      'healAfterNetworkChange: action=$action '
+      'state=${status?.state} healthy=${status?.isHealthy} '
+      'health=${status?.health} ignoreCooldown=$ignoreCooldown',
+    );
+
+    switch (action) {
+      case SideloadTsnetHealAction.none:
+        return true;
+      case SideloadTsnetHealAction.resume:
+        final ok = await ensureRunning(allowEnroll: false);
+        if (ok) _lastHealAt = DateTime.now();
+        return ok;
+      case SideloadTsnetHealAction.restart:
+        final ok = await _restartNodeResumeOnly();
+        if (ok) _lastHealAt = DateTime.now();
+        return ok;
+    }
+  }
+
+  /// Poll until dart:io sees a usable IPv4/IPv6 or the short budget expires.
+  static Future<void> _waitForUsableAndroidInterface() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final ifaces = await NetworkInterface.list(
+          includeLinkLocal: false,
+          includeLoopback: false,
+          type: InternetAddressType.any,
+        );
+        final usable = ifaces.any(
+          (iface) => iface.addresses.any(
+            (a) => !a.isLoopback && !a.isLinkLocal,
+          ),
+        );
+        if (usable) {
+          _log.info(
+            'Android interfaces ready: '
+            '${ifaces.map((i) => '${i.name}=${i.addresses.map((a) => a.address).join(",")}').join('; ')}',
+          );
+          return;
+        }
+      } catch (e) {
+        _log.fine('Android interface poll failed: $e');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    _log.warning('Android interfaces still empty after wait; proceeding with heal anyway');
+  }
+
+  static Future<bool> _restartNodeResumeOnly() async {
+    try {
+      if (_initialized) {
+        await Tailscale.instance.down();
+        try {
+          _lastStatus = await Tailscale.instance.status();
+        } catch (_) {
+          _lastStatus = TailscaleStatus.stopped;
+        }
+      }
+    } catch (e, st) {
+      _log.warning('heal: down() before restart failed', e, st);
+    }
+    try {
+      final status = await up(resumeOnly: true);
+      _log.info(
+        'heal restart → state=${status.state} ipv4=${status.ipv4} '
+        'healthy=${status.isHealthy} health=${status.health}',
+      );
+      return status.isRunning;
+    } catch (e, st) {
+      _log.warning('heal: resume up() after down failed', e, st);
+      return false;
+    }
   }
 
   static Future<bool> _ensureRunningBody({required Duration timeout, required bool allowEnroll}) async {
