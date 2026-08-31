@@ -23,8 +23,10 @@ echo "    device=$IOS_DEVICE"
 echo "    app=$APP"
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  echo "==> flutter build ios --profile"
-  flutter build ios --profile
+  echo "==> flutter build ios --profile -d $IOS_DEVICE"
+  # Device destination registers the UDID with the personal team profile.
+  # Generic platform=iOS builds fail with "no devices" after profile expiry.
+  flutter build ios --profile -d "$IOS_DEVICE"
 fi
 
 if [[ ! -d "$APP" ]]; then
