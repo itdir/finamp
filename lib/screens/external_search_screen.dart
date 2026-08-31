@@ -8,15 +8,15 @@ import 'package:http/http.dart' as http;
 import '../components/ExternalSearch/music_finder_server_sheet.dart';
 import '../components/now_playing_bar.dart';
 import '../models/music_finder_models.dart';
-import '../services/finamp_secrets.dart';
 import '../services/music_finder_client.dart';
 import '../services/music_finder_connection_policy.dart';
+import '../services/music_finder_url_store.dart';
 
 /// External Music Finder search against a self-hosted Music Finder service.
 ///
-/// The Music Finder base URL is stored encrypted ([FinampSecrets]). Opening
-/// this route without a reachable server prompts to reconnect without wiping
-/// the saved URL.
+/// The Music Finder base URL is stored in Hive and mirrored to Keychain.
+/// Opening this route without a reachable server prompts to reconnect without
+/// wiping the saved URL.
 class ExternalSearchScreen extends StatefulWidget {
   const ExternalSearchScreen({Key? key}) : super(key: key);
 
@@ -66,7 +66,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     _artistController.addListener(_onFieldChanged);
     _albumController.addListener(_onFieldChanged);
 
-    final savedUrl = FinampSecrets.musicFinderServerUrl?.trim();
+    final savedUrl = MusicFinderUrlStore.current;
     if (savedUrl == null || savedUrl.isEmpty) {
       // Always allow entry via the skull button; prompt to connect.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -137,7 +137,8 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   void _markServerUnreachable() {
     final preserved = musicFinderUrlAfterUnreachable(
       inMemoryUrl: _serverUrl,
-      secureStorageUrl: FinampSecrets.musicFinderServerUrl,
+      secureStorageUrl: null,
+      hiveUrl: MusicFinderUrlStore.current,
     );
     setState(() {
       _serverUrl = preserved;
@@ -163,7 +164,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   Future<void> _retrySavedServer() async {
-    final url = (_serverUrl ?? FinampSecrets.musicFinderServerUrl)?.trim();
+    final url = (_serverUrl ?? MusicFinderUrlStore.current)?.trim();
     if (url == null || url.isEmpty) {
       await _openServerSheet(force: true);
       return;
@@ -205,7 +206,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         _addResult = null;
         _selectedUrls.clear();
       });
-      await FinampSecrets.setMusicFinderServerUrl(connectedUrl);
+      await MusicFinderUrlStore.save(connectedUrl);
       return;
     }
 
@@ -603,7 +604,8 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   Widget _buildOfflinePane(AppLocalizations localizations) {
     final hasSavedUrl = musicFinderUrlAfterUnreachable(
           inMemoryUrl: _serverUrl,
-          secureStorageUrl: FinampSecrets.musicFinderServerUrl,
+          secureStorageUrl: null,
+          hiveUrl: MusicFinderUrlStore.current,
         ) !=
         null;
 
@@ -672,7 +674,8 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
           if (musicFinderShouldShowChangeServer(
             isConnected: _isConnected,
             inMemoryUrl: _serverUrl,
-            secureStorageUrl: FinampSecrets.musicFinderServerUrl,
+            hiveUrl: MusicFinderUrlStore.current,
+            secureStorageUrl: null,
           ))
             IconButton(
               icon: const Icon(Icons.dns_outlined),

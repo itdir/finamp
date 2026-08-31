@@ -44,14 +44,25 @@ class FinampSecrets {
   static Future<void> ensureInitialized() async {
     if (_initialized) return;
     await _migrateLegacyAuthKeyFromPrefs();
-    _musicFinderUrlCache =
-        (await _storage.read(key: _musicFinderUrlStorageKey))?.trim();
-    if (_musicFinderUrlCache != null && _musicFinderUrlCache!.isEmpty) {
+    try {
+      _musicFinderUrlCache =
+          (await _storage.read(key: _musicFinderUrlStorageKey))?.trim();
+      if (_musicFinderUrlCache != null && _musicFinderUrlCache!.isEmpty) {
+        _musicFinderUrlCache = null;
+      }
+    } catch (e, st) {
+      _log.warning('Keychain Music Finder URL read failed: $e', e, st);
       _musicFinderUrlCache = null;
     }
     _initialized = true;
-    final hasAuth =
-        ((await _storage.read(key: _authKeyStorageKey))?.trim() ?? '').isNotEmpty;
+    var hasAuth = false;
+    try {
+      hasAuth =
+          ((await _storage.read(key: _authKeyStorageKey))?.trim() ?? '')
+              .isNotEmpty;
+    } catch (e, st) {
+      _log.warning('Keychain auth key read failed: $e', e, st);
+    }
     _log.info(
       'Secure secrets ready (authKey=$hasAuth, musicFinder=$hasMusicFinderServer)',
     );

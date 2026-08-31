@@ -42,6 +42,60 @@ void main() {
         isNull,
       );
     });
+
+    test('prefers Hive over Keychain so sideload OTA cannot drop the URL', () {
+      expect(
+        musicFinderUrlAfterUnreachable(
+          inMemoryUrl: null,
+          secureStorageUrl: 'http://stale-keychain.local:8088',
+          hiveUrl: 'http://downloads.local:8088',
+        ),
+        'http://downloads.local:8088',
+      );
+    });
+
+    test('falls back to Keychain when Hive is empty', () {
+      expect(
+        musicFinderUrlAfterUnreachable(
+          inMemoryUrl: null,
+          secureStorageUrl: 'http://downloads.local:8088',
+          hiveUrl: null,
+        ),
+        'http://downloads.local:8088',
+      );
+    });
+  });
+
+  group('musicFinderReconcilePersistedUrls', () {
+    test('mirrors Hive into Keychain', () {
+      expect(
+        musicFinderReconcilePersistedUrls(
+          keychain: null,
+          hive: 'http://downloads.local:8088',
+        ),
+        (keychain: 'http://downloads.local:8088', hive: 'http://downloads.local:8088'),
+      );
+    });
+
+    test('mirrors Keychain into Hive when Hive is empty', () {
+      expect(
+        musicFinderReconcilePersistedUrls(
+          keychain: 'http://downloads.local:8088',
+          hive: null,
+        ),
+        (keychain: 'http://downloads.local:8088', hive: 'http://downloads.local:8088'),
+      );
+    });
+
+    test('Hive wins when the two stores disagree', () {
+      expect(
+        musicFinderReconcilePersistedUrls(
+          keychain: 'http://old.local:8088',
+          hive: 'http://downloads.local:8088',
+        ),
+        (keychain: 'http://downloads.local:8088', hive: 'http://downloads.local:8088'),
+      );
+    });
   });
 
   group('musicFinderShouldShowChangeServer', () {

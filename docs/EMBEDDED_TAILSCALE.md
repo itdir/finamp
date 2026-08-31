@@ -149,19 +149,23 @@ flutter run
 - Node WireGuard private key lives under application support
   (`…/embedded_tailscale/`). On iOS, `AppDelegate` excludes the application
   support directory from iCloud backup using `URLResourceValues`.
-- **Auth keys** and the **Music Finder server URL** are stored with
-  `flutter_secure_storage` (iOS/macOS Keychain, Android EncryptedSharedPreferences /
-  Keystore)—not Hive or plain SharedPreferences. Older plaintext copies are
-  migrated once at startup and deleted.
+- **Auth keys** are stored with `flutter_secure_storage` (iOS/macOS Keychain,
+  Android EncryptedSharedPreferences / Keystore)—not Hive or plain
+  SharedPreferences. Older plaintext auth-key copies are migrated once at
+  startup and deleted.
+- The **Music Finder server URL** is dual-written to Hive (durable across
+  personal-team sideload OTA) and Keychain. Hive is the source of truth;
+  Keychain-only storage was wiping the URL overnight while Jellyfin login in
+  Hive kept working.
 - Prefer short-lived or tagged auth keys from the Tailscale admin console.
 - Use **Log out / reset node** before handing a device away.
 
 ## Scope / non-goals
 
 - This stacked branch includes Music Finder + External Search. Hive
-  `useEmbeddedTailscale` is `@HiveField(154)`; legacy plaintext
-  `musicFinderServerUrl` was `@HiveField(155)` and is cleared after migration
-  into secure storage. Music Finder HTTP uses `FinampHttpClient` (tsnet).
+  `useEmbeddedTailscale` is `@HiveField(154)`; `musicFinderServerUrl` is
+  `@HiveField(155)` and stays in Hive (mirrored to Keychain). Music Finder HTTP
+  uses `FinampHttpClient` (tsnet).
 - Audio streaming uses the platform HTTP stack. With Embedded Tailscale on,
   streams use the Public address, replayed through the loopback media proxy
   (`lib/services/tailscale_media_proxy.dart`) when that address is tailnet-only.

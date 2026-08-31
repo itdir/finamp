@@ -50,8 +50,12 @@ class FinampSettingsHelper {
     Hive.box<FinampSettings>("FinampSettings").put("FinampSettings", newFinampSettings);
   }
 
-  /// True when a Music Finder base URL is stored in encrypted secure storage.
-  static bool get hasMusicFinderServer => FinampSecrets.hasMusicFinderServer;
+  /// True when a Music Finder base URL is stored in Hive or Keychain.
+  static bool get hasMusicFinderServer {
+    if (FinampSecrets.hasMusicFinderServer) return true;
+    final hive = finampSettings.musicFinderServerUrl?.trim();
+    return hive != null && hive.isNotEmpty;
+  }
 
   static void resetTabsSettings() {
     FinampSettings finampSettingsTemp = finampSettings;
