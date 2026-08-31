@@ -3826,7 +3826,15 @@
   },
   "musicFinderServerUnavailable": "Music Finder server is unreachable",
   "@musicFinderServerUnavailable": {
-    "description": "Shown when External Search cannot reach the configured server"
+    "description": "Shown when the saved Music Finder URL cannot be reached; the URL stays stored."
+  },
+  "musicFinderRetryConnection": "Retry connection",
+  "@musicFinderRetryConnection": {
+    "description": "Retry health check using the saved Music Finder URL without re-entering it."
+  },
+  "musicFinderOfflineHint": "Your server URL is still saved. Retry when the host is back, or change server.",
+  "@musicFinderOfflineHint": {
+    "description": "Explains that a transient outage does not erase the private Music Finder URL."
   },
   "searchingButtonLabel": "Searching...",
   "@searchingButtonLabel": {
