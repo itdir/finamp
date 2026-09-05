@@ -834,10 +834,14 @@ void _migrateDeviceId() {
   }
 }
 
-/// Tailscale auth key stays Keychain-only. Music Finder URL is dual-written
-/// to Hive + Keychain; never wipe Hive (sideload OTA drops Keychain).
+/// Tailscale auth key stays Keychain-only. Music Finder URL is Hive +
+/// SharedPreferences (never Keystore — that blocked Android saves).
 Future<void> _migrateSecretsToSecureStorage() async {
-  await FinampSecrets.ensureInitialized();
+  try {
+    await FinampSecrets.ensureInitialized().timeout(const Duration(seconds: 2));
+  } catch (e, st) {
+    _mainLog.warning('Secure storage init skipped: $e', e, st);
+  }
   await MusicFinderUrlStore.reconcileOnStartup();
 }
 

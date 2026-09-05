@@ -1,8 +1,9 @@
 /// Pure helpers for Music Finder connection UX.
 ///
-/// The saved server URL is dual-written to Hive (survives sideload OTA) and
-/// Keychain/Keystore. A failed health check or search must never clear it —
-/// only an explicit successful reconnect with a new URL should overwrite it.
+/// The saved server URL lives in Hive (plus SharedPreferences backup). A failed
+/// health check or search must never clear it — only an explicit successful
+/// reconnect with a new URL should overwrite it. Leftover Keychain values are
+/// still accepted as a one-time migration source.
 String? musicFinderNonEmptyUrl(String? url) {
   final trimmed = url?.trim();
   if (trimmed == null || trimmed.isEmpty) return null;
@@ -19,7 +20,7 @@ String? musicFinderUrlAfterUnreachable({
       musicFinderNonEmptyUrl(inMemoryUrl);
 }
 
-/// Pick one canonical URL and mirror it to both stores.
+/// Pick one canonical URL across Hive and any leftover Keychain copy.
 ///
 /// Hive wins when both are set: app documents survive personal-team sideload
 /// upgrades, while iOS Keychain is often empty after an IPA replace.

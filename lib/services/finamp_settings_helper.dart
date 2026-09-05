@@ -12,7 +12,6 @@ import 'package:rxdart/rxdart.dart';
 
 import '../models/finamp_models.dart';
 import '../models/jellyfin_models.dart';
-import 'finamp_secrets.dart';
 
 part 'finamp_settings_helper.g.dart';
 
@@ -50,9 +49,8 @@ class FinampSettingsHelper {
     Hive.box<FinampSettings>("FinampSettings").put("FinampSettings", newFinampSettings);
   }
 
-  /// True when a Music Finder base URL is stored in Hive or Keychain.
+  /// True when a Music Finder base URL is stored in Hive.
   static bool get hasMusicFinderServer {
-    if (FinampSecrets.hasMusicFinderServer) return true;
     final hive = finampSettings.musicFinderServerUrl?.trim();
     return hive != null && hive.isNotEmpty;
   }

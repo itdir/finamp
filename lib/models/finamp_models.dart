@@ -981,9 +981,8 @@ class FinampSettings {
 
   /// Base URL for the external Music Finder service (non-Jellyfin).
   ///
-  /// Durable copy in Hive (same as other settings). Also mirrored to
-  /// [FinampSecrets] Keychain/Keystore. Hive is not cleared on startup —
-  /// personal-team sideload OTA keeps app documents but often drops Keychain.
+  /// Durable copy in Hive (same as other settings), plus SharedPreferences.
+  /// Not stored in Keychain/Keystore.
   ///
   /// Field **155** on the stacked `feat/music-finder` branch. Older
   /// music-finder-only builds stored this at 154 as a [String]; see

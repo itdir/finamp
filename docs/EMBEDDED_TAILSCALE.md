@@ -30,7 +30,9 @@ WireGuard-over-UDP from inside Finamp and leaves the OS routing table alone.
    (the login screen still normalizes the common `jellyfin@tailnet` typo)
 6. Jellyfin API calls (Chopper), library `getItems`, cover-art cache downloads,
    **Music Finder** health/search/add, and **Network → Test both connections**
-   go through `FinampHttpClient` / tsnet when embedded Tailscale is Running.
+   go through `FinampHttpClient`. **Only MagicDNS / `100.x` URLs use tsnet.**
+   LAN addresses (`192.168.x`, `*.local`) use the OS Wi-Fi stack so Prefer
+   Local Network can switch sources while embedded Tailscale stays on.
 
 Library browsing uses a background isolate with a plain `IOClient` when
 Tailscale is **off**. When Embedded Tailscale is on (or the active URL is
@@ -44,18 +46,20 @@ file downloads. Those stacks cannot use the Dart userspace Tailscale client, so
 MagicDNS hostnames often fail with DNS errors (`-1003` on iOS) even while
 Chopper API calls succeed through tsnet.
 
-**Streaming while Embedded Tailscale is enabled:** Finamp builds remote
-`AudioSource` URIs from the **Public** Jellyfin address (`publicAddress`), not
-from `baseURL` (which may still prefer Local/MagicDNS for API).
+**Streaming while Embedded Tailscale is enabled:**
 
-When that address is tailnet-only (`*.ts.net` or `100.64.0.0/10`), the URI is
-rewritten to a **loopback media proxy** — `TailscaleMediaProxy` binds an HTTP
-server on `127.0.0.1` (random port, random per-run secret path segment) and
-replays each request over `Tailscale.instance.http.client`. `Range` headers and
-`206` responses pass through unchanged so seeking works, and HLS playlists
-returned for transcoded streams are rewritten so their segment URLs point back
-at the proxy. Requests are only replayed when the upstream host is tailnet-only
-and the secret matches; the proxy stops when the toggle is turned off.
+- **On the server's LAN** (Prefer Local Network → `isLocal`): stream from
+  `baseURL` / `localAddress` over the OS Wi‑Fi stack (same as Jellyfin API).
+- **Off-LAN** (cellular or other Wi‑Fi): stream from the **Public** address
+  (`publicAddress`). When that host is tailnet-only (`*.ts.net` /
+  `100.64.0.0/10`), the URI is rewritten to a **loopback media proxy** —
+  `TailscaleMediaProxy` binds an HTTP server on `127.0.0.1` (random port,
+  random per-run secret path segment) and replays each request over
+  `Tailscale.instance.http.client`. `Range` headers and `206` responses pass
+  through unchanged so seeking works, and HLS playlists returned for
+  transcoded streams are rewritten so their segment URLs point back at the
+  proxy. Requests are only replayed when the upstream host is tailnet-only
+  and the secret matches; the proxy stops when the toggle is turned off.
 
 A plain internet-reachable Public URL (reverse proxy / tunnel hostname) skips
 the proxy and is handed to the player directly. Downloaded tracks continue to
@@ -63,7 +67,8 @@ play from disk. Already-loaded remote queues rebuild when the effective playback
 address class changes (Tailscale toggle, public address, or base URL).
 
 Exported logs record the chosen path at `INFO` — look for
-`Stream audio source: loopback proxy for tailnet public address` or
+`Stream audio source: loopback proxy for tailnet public address`,
+`Stream audio source: direct local address`, or
 `Stream audio source: direct public address`. The URL and token are never
 logged. Profile/Release builds drop `FINE`, so diagnostics for this path must
 be logged at `INFO` or above.
@@ -106,17 +111,22 @@ address again — Test on cellular then pinged LAN and both checks failed.
 
 **Cellular:** Local failing is expected. Public should pass if Embedded
 Tailscale is **Running** and the public field is actually `*.ts.net` (not the
-LAN IP). After a radio switch, Finamp **debounces ~2s** then **rebuilds**
-the userspace node (`down` + resume `up`). Healing immediately was wrong on
-Android: `NetworkInterface.list()` is often empty mid-handoff, so tsnet
-started with a fake fallback iface and then a cooldown blocked recovery.
-Failed MagicDNS HTTP calls bypass that cooldown and force another rebuild.
+LAN IP). After a radio switch (Wi‑Fi ↔ cellular), Finamp **debounces ~2s**
+then **rebuilds** the userspace node (`down` + resume `up`). A second rebuild
+runs ~4s later when the radio type actually changed.
+
+Healing immediately on the first connectivity event was wrong: the dying
+path is still listed, `NetworkInterface.list()` can be empty, and the 8s
+cooldown then skipped the real rebuild — MagicDNS stayed dead until
+force-quit. The Auto Offline listener no longer heals tsnet (it raced the
+settled watcher). `none` events are polled until a usable path appears.
+Failed MagicDNS HTTP calls time out (10s) and bypass cooldown.
+
 `package:tailscale` treats `up()` as a no-op while status is still
-`Running`, and Android only refreshes the host interface snapshot at
-start — soft `ensureRunning` cannot recover alone. Connectivity watching
-is **always on** when Embedded Tailscale is enabled (independent of Auto
-Offline / prefer-local). Public pings allow up to 15s (LAN pings stay at
-3s).
+`Running`, and the host interface snapshot is only pushed at start — soft
+`ensureRunning` cannot recover alone. Connectivity watching is **always on**
+when Embedded Tailscale is enabled (independent of Auto Offline /
+prefer-local). Public pings allow up to 15s (LAN pings stay at 3s).
 
 If Public still fails while Embedded Tailscale shows Running, confirm the
 public field is MagicDNS, then rebuild. Older builds used a plain `IOClient`
@@ -153,10 +163,10 @@ flutter run
   Android EncryptedSharedPreferences / Keystore)—not Hive or plain
   SharedPreferences. Older plaintext auth-key copies are migrated once at
   startup and deleted.
-- The **Music Finder server URL** is dual-written to Hive (durable across
-  personal-team sideload OTA) and Keychain. Hive is the source of truth;
-  Keychain-only storage was wiping the URL overnight while Jellyfin login in
-  Hive kept working.
+- The **Music Finder server URL** is stored in Hive (same as other settings)
+  plus a SharedPreferences backup. It is **not** stored in Keychain/Keystore
+  — that path blocked Android saves. On startup, any leftover Keychain copy
+  is copied into Hive once.
 - Prefer short-lived or tagged auth keys from the Tailscale admin console.
 - Use **Log out / reset node** before handing a device away.
 
@@ -164,10 +174,11 @@ flutter run
 
 - This stacked branch includes Music Finder + External Search. Hive
   `useEmbeddedTailscale` is `@HiveField(154)`; `musicFinderServerUrl` is
-  `@HiveField(155)` and stays in Hive (mirrored to Keychain). Music Finder HTTP
-  uses `FinampHttpClient` (tsnet).
-- Audio streaming uses the platform HTTP stack. With Embedded Tailscale on,
-  streams use the Public address, replayed through the loopback media proxy
+  `@HiveField(155)` and stays in Hive (SharedPreferences backup). Music Finder
+  HTTP uses `FinampHttpClient` (tsnet only for MagicDNS / `100.x`).
+- Audio streaming uses the platform HTTP stack. On the LAN, Prefer Local uses
+  `localAddress` over Wi‑Fi. Off-LAN with Embedded Tailscale, streams use the
+  Public address, replayed through the loopback media proxy
   (`lib/services/tailscale_media_proxy.dart`) when that address is tailnet-only.
   The proxy runs on the main isolate because tsnet's `http.Client` is not usable
   from background isolates.

@@ -37,6 +37,32 @@ SideloadTsnetHealAction sideloadTsnetHealAction({
   return SideloadTsnetHealAction.none;
 }
 
+bool sideloadConnectivityLooksUsable(List<ConnectivityResult> results) {
+  return results.any(
+    (r) =>
+        r == ConnectivityResult.wifi ||
+        r == ConnectivityResult.mobile ||
+        r == ConnectivityResult.ethernet ||
+        r == ConnectivityResult.vpn ||
+        r == ConnectivityResult.other,
+  );
+}
+
+String sideloadConnectivitySignature(List<ConnectivityResult> results) {
+  final names = results.map((r) => r.name).toSet().toList()..sort();
+  return names.join(',');
+}
+
+/// Wi‑Fi ↔ cellular (or any radio change) must rebuild even if a heal just ran
+/// on the dying path and started the cooldown.
+bool sideloadTsnetHealShouldIgnoreCooldown({
+  required String? previousSignature,
+  required String currentSignature,
+}) {
+  if (previousSignature == null || previousSignature.isEmpty) return false;
+  return previousSignature != currentSignature;
+}
+
 /// Lifecycle wrapper around [package:tailscale] userspace tsnet.
 ///
 /// Keeps the node state directory under application support. On iOS,
@@ -72,6 +98,9 @@ class EmbeddedTailscaleService {
   static StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   static AppLifecycleListener? _lifecycleListener;
   static Timer? _connectivitySettleTimer;
+  static Timer? _followUpHealTimer;
+  static Timer? _nonePollTimer;
+  static String? _lastConnectivitySignature;
 
   /// Minimum gap between forced path rebuilds (network flaps fire many events).
   static const _healCooldown = Duration(seconds: 8);
@@ -103,39 +132,84 @@ class EmbeddedTailscaleService {
   /// listener when disabled, which left MagicDNS-only users stuck until a
   /// process restart. Call once after settings are loaded.
   static void startNetworkWatching() {
-    _connectivitySub ??= Connectivity().onConnectivityChanged.listen((results) {
-      // During a handoff Android often emits `none` then the new radio.
-      // Debounce until the path looks usable, then heal after a settle delay
-      // so NetworkInterface.list() / netmon see the new addresses.
-      final usable = results.any(
-        (r) =>
-            r == ConnectivityResult.wifi ||
-            r == ConnectivityResult.mobile ||
-            r == ConnectivityResult.ethernet ||
-            r == ConnectivityResult.vpn ||
-            r == ConnectivityResult.other,
-      );
-      if (!usable) {
-        _log.info('connectivity → $results (waiting for usable path)');
-        return;
-      }
-      _log.info('connectivity → $results; scheduling tsnet heal in ${_connectivitySettle.inSeconds}s');
-      _connectivitySettleTimer?.cancel();
-      _connectivitySettleTimer = Timer(_connectivitySettle, () {
-        unawaited(healAfterNetworkChange(forceRestart: true));
-      });
-    });
+    _connectivitySub ??= Connectivity().onConnectivityChanged.listen(_onConnectivityResults);
     _lifecycleListener ??= AppLifecycleListener(
       onResume: () {
-        unawaited(healAfterNetworkChange(forceRestart: true));
+        unawaited(
+          healAfterNetworkChange(forceRestart: true, ignoreCooldown: true),
+        );
       },
     );
+  }
+
+  static void _onConnectivityResults(List<ConnectivityResult> results) {
+    if (!sideloadConnectivityLooksUsable(results)) {
+      _log.info('connectivity → $results (waiting for usable path)');
+      _nonePollTimer?.cancel();
+      _nonePollTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (timer.tick > 8) {
+          timer.cancel();
+          return;
+        }
+        unawaited(_pollConnectivityAfterNone());
+      });
+      return;
+    }
+    _nonePollTimer?.cancel();
+    _nonePollTimer = null;
+
+    final signature = sideloadConnectivitySignature(results);
+    final pathChanged = sideloadTsnetHealShouldIgnoreCooldown(
+      previousSignature: _lastConnectivitySignature,
+      currentSignature: signature,
+    );
+    _lastConnectivitySignature = signature;
+
+    _log.info(
+      'connectivity → $results signature=$signature pathChanged=$pathChanged; '
+      'scheduling tsnet heal in ${_connectivitySettle.inSeconds}s',
+    );
+    _connectivitySettleTimer?.cancel();
+    _followUpHealTimer?.cancel();
+    _connectivitySettleTimer = Timer(_connectivitySettle, () {
+      unawaited(
+        healAfterNetworkChange(
+          forceRestart: true,
+          ignoreCooldown: pathChanged,
+        ),
+      );
+      if (pathChanged) {
+        // iOS often assigns the new address after the first usable event.
+        _followUpHealTimer = Timer(const Duration(seconds: 4), () {
+          unawaited(
+            healAfterNetworkChange(forceRestart: true, ignoreCooldown: true),
+          );
+        });
+      }
+    });
+  }
+
+  static Future<void> _pollConnectivityAfterNone() async {
+    try {
+      final now = await Connectivity().checkConnectivity();
+      if (sideloadConnectivityLooksUsable(now)) {
+        _nonePollTimer?.cancel();
+        _nonePollTimer = null;
+        _onConnectivityResults(now);
+      }
+    } catch (e) {
+      _log.fine('connectivity poll after none failed: $e');
+    }
   }
 
   /// Stop listening (tests / toggle off). Does not bring the node down.
   static Future<void> stopNetworkWatching() async {
     _connectivitySettleTimer?.cancel();
     _connectivitySettleTimer = null;
+    _followUpHealTimer?.cancel();
+    _followUpHealTimer = null;
+    _nonePollTimer?.cancel();
+    _nonePollTimer = null;
     await _connectivitySub?.cancel();
     _connectivitySub = null;
     _lifecycleListener?.dispose();
@@ -185,10 +259,10 @@ class EmbeddedTailscaleService {
       return isRunning;
     }
 
-    // On Android, wait briefly for a non-loopback address so start()'s
-    // host-network snapshot is not empty (which falls back to a fake iface).
-    if (Platform.isAndroid && forceRestart) {
-      await _waitForUsableAndroidInterface();
+    // Wait for a non-loopback address so start()'s host-network snapshot is
+    // not empty (fake iface + cooldown left MagicDNS dead until force-quit).
+    if (forceRestart) {
+      await _waitForUsableHostInterface();
     }
 
     try {
@@ -224,7 +298,7 @@ class EmbeddedTailscaleService {
   }
 
   /// Poll until dart:io sees a usable IPv4/IPv6 or the short budget expires.
-  static Future<void> _waitForUsableAndroidInterface() async {
+  static Future<void> _waitForUsableHostInterface() async {
     final deadline = DateTime.now().add(const Duration(seconds: 3));
     while (DateTime.now().isBefore(deadline)) {
       try {
@@ -240,17 +314,17 @@ class EmbeddedTailscaleService {
         );
         if (usable) {
           _log.info(
-            'Android interfaces ready: '
+            'Host interfaces ready: '
             '${ifaces.map((i) => '${i.name}=${i.addresses.map((a) => a.address).join(",")}').join('; ')}',
           );
           return;
         }
       } catch (e) {
-        _log.fine('Android interface poll failed: $e');
+        _log.fine('Host interface poll failed: $e');
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    _log.warning('Android interfaces still empty after wait; proceeding with heal anyway');
+    _log.warning('Host interfaces still empty after wait; proceeding with heal anyway');
   }
 
   static Future<bool> _restartNodeResumeOnly() async {

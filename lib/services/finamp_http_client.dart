@@ -22,8 +22,10 @@ import 'finamp_settings_helper.dart';
 /// [JellyfinApi.create] with `inForeground: false`.
 class FinampHttpClient extends http.BaseClient {
   FinampHttpClient({Duration connectionTimeout = const Duration(seconds: 10)})
-    : _default = IOClient(HttpClient()..connectionTimeout = connectionTimeout);
+    : _connectionTimeout = connectionTimeout,
+      _default = IOClient(HttpClient()..connectionTimeout = connectionTimeout);
 
+  final Duration _connectionTimeout;
   final http.Client _default;
   final _log = Logger('FinampHttpClient');
 
@@ -38,11 +40,12 @@ class FinampHttpClient extends http.BaseClient {
 
   bool get _useEmbeddedTs => useEmbeddedTailscaleEnabled;
 
-  http.Client get _active {
-    if (!_useEmbeddedTs) return _default;
-    if (!EmbeddedTailscaleService.isRunning) {
-      return _default;
-    }
+  /// Userspace tsnet only for MagicDNS / CGNAT. LAN (`192.168.x`,
+  /// `downloads.local`) and normal internet stay on the OS Wi-Fi stack so
+  /// Network → Prefer Local Network can actually switch sources.
+  http.Client _clientFor(Uri url) {
+    if (!_useTsnetFor(url)) return _default;
+    if (!EmbeddedTailscaleService.isRunning) return _default;
     try {
       return Tailscale.instance.http.client;
     } catch (e) {
@@ -50,6 +53,9 @@ class FinampHttpClient extends http.BaseClient {
       return _default;
     }
   }
+
+  bool _useTsnetFor(Uri url) =>
+      _useEmbeddedTs && looksLikeTailnetHost(url);
 
   /// MagicDNS (`*.ts.net`) or Tailscale CGNAT (`100.64.0.0/10`).
   static bool looksLikeTailnetHost(Uri uri) {
@@ -92,7 +98,7 @@ class FinampHttpClient extends http.BaseClient {
       _log.warning('useEmbeddedTailscale is on but tsnet is not running; using default client');
     }
     try {
-      return await _active.send(request);
+      return await _sendOnce(request);
     } catch (e) {
       // Running-but-dead after a radio/VPN change: connectivity heal may have
       // raced before Android interfaces were ready and then hit cooldown.
@@ -120,8 +126,16 @@ class FinampHttpClient extends http.BaseClient {
         ..maxRedirects = request.maxRedirects
         ..persistentConnection = request.persistentConnection;
       retry.headers.addAll(request.headers);
-      return _active.send(retry);
+      return _sendOnce(retry);
     }
+  }
+
+  Future<http.StreamedResponse> _sendOnce(http.BaseRequest request) {
+    final sent = _clientFor(request.url).send(request);
+    if (!_useTsnetFor(request.url)) return sent;
+    // tsnet's client has no connectionTimeout; hung sockets after a radio
+    // change never threw, so heal-on-failure never ran until force-quit.
+    return sent.timeout(_connectionTimeout);
   }
 
   @override

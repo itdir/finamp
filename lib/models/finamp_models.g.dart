@@ -494,7 +494,7 @@ class FinampSettingsAdapter extends TypeAdapter<FinampSettings> {
   @override
   void write(BinaryWriter writer, FinampSettings obj) {
     writer
-      ..writeByte(149)
+      ..writeByte(154)
       ..writeByte(0)
       ..write(obj.isOffline)
       ..writeByte(1)

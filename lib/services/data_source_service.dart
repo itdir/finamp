@@ -61,11 +61,10 @@ class DataSourceService {
       _onPlaybackAddressChange(finampUserHelper);
     });
 
-    // Streaming uses publicAddress (and the loopback proxy for tailnet hosts)
-    // while Embedded Tailscale is on — see MusicPlayerBackgroundTask._trackUri.
-    // baseURL may stay on local/MagicDNS for API, so also rebuild when the
-    // Tailscale toggle or public address changes — otherwise the native player
-    // keeps stale URLs after startup or network transitions.
+    // Off-LAN streaming uses publicAddress (+ loopback proxy for MagicDNS)
+    // when Embedded Tailscale is on; on-LAN Prefer Local uses baseURL/local.
+    // Rebuild when the Tailscale toggle or public address changes so the
+    // native player does not keep stale URLs after startup or handoffs.
     ref.listen(finampSettingsProvider.useEmbeddedTailscale, (_, enabled) {
       _dataSourceServiceLogger.info(
         "Embedded Tailscale ${enabled ? 'enabled' : 'disabled'}; refreshing playback sources",
@@ -86,10 +85,10 @@ class DataSourceService {
 
   /// Effective streamed-audio address class (not the URL itself).
   static void _onPlaybackAddressChange(FinampUserHelper finampUserHelper) {
-    final useEmbeddedTailscale = FinampSettingsHelper.finampSettings.useEmbeddedTailscale;
-    final isLocalUrl = !useEmbeddedTailscale && (finampUserHelper.currentUser?.isLocal ?? false);
+    final user = finampUserHelper.currentUser;
+    final isLocalUrl = user != null && user.isLocal && user.preferLocalNetwork;
     _dataSourceServiceLogger.info(
-      "Playback address class: ${useEmbeddedTailscale || !isLocalUrl ? 'public' : 'local'}",
+      "Playback address class: ${isLocalUrl ? 'local' : 'public'}",
     );
     _onDataSourceChange(isLocalUrl ? SourceChangeType.toLocalUrl : SourceChangeType.toRemoteUrl);
   }

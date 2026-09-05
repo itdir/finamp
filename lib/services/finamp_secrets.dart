@@ -4,11 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Platform-backed encrypted storage for fork secrets (Keychain / Keystore).
 ///
-/// Holds:
-/// - Embedded Tailscale auth key (`tskey-auth-…`)
-/// - Music Finder server base URL
+/// Holds the embedded Tailscale auth key (`tskey-auth-…`).
 ///
-/// Values are never written to Hive or plain SharedPreferences after migration.
+/// Music Finder URLs are stored in Hive + SharedPreferences, not here.
 class FinampSecrets {
   FinampSecrets._();
 

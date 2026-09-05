@@ -59,7 +59,7 @@
 			<string>_dartobservatory._tcp</string>
 		</array>
 		<key>NSLocalNetworkUsageDescription</key>
-		<string>Required for debugging</string>
+		<string>Finamp uses the local network to reach Jellyfin and Music Finder on Wi-Fi.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>I don't know why this permission is being requested, you should probably deny it. If you can, create a GitHub issue with a screenshot of this message.</string>
 		<key>NSUserActivityTypes</key>

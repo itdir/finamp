@@ -1378,14 +1378,17 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
 
     // just_audio hands the URI to the platform media stack (AVPlayer /
     // ExoPlayer). That stack does not use FinampHttpClient / embedded tsnet, so
-    // MagicDNS / home-only hostnames fail with DNS errors while Chopper API
-    // calls still succeed. When Embedded Tailscale is on, stream from the
-    // configured public address (OS-reachable when it is a real public
-    // hostname) instead of baseURL, and replay tailnet-only hosts through the
-    // loopback proxy below.
+    // MagicDNS fails with DNS errors while Chopper API calls still succeed.
+    //
+    // On the server's LAN (Prefer Local → isLocal), stream [baseURL]/local)
+    // over OS Wi‑Fi — same as Jellyfin API. Off-LAN with Embedded Tailscale,
+    // use [publicAddress] and replay tailnet hosts through the loopback proxy.
     final user = finampUserHelper.currentUser!;
     final useEmbeddedTailscale = FinampSettingsHelper.finampSettings.useEmbeddedTailscale;
-    final streamBaseUrl = useEmbeddedTailscale ? user.publicAddress : user.baseURL;
+    final useLocalLan = user.isLocal && user.preferLocalNetwork;
+    final streamBaseUrl = (useEmbeddedTailscale && !useLocalLan)
+        ? user.publicAddress
+        : user.baseURL;
 
     final parsedBaseUrl = Uri.parse(streamBaseUrl);
 
@@ -1438,9 +1441,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
 
     // Log the address class only (never the URL or token) so exported logs show
     // which path the native player was handed.
-    final addressClass = useEmbeddedTailscale
-        ? 'public'
-        : (user.isLocal && user.preferLocalNetwork ? 'local' : 'public');
+    final addressClass = useLocalLan ? 'local' : 'public';
 
     if (useEmbeddedTailscale && FinampHttpClient.looksLikeTailnetHost(directUri)) {
       if (await TailscaleMediaProxy.instance.ensureStarted()) {
