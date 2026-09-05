@@ -12,8 +12,12 @@ import 'finamp_settings_helper.dart';
 ///
 /// Chopper keeps a single client for the process lifetime; this delegates each
 /// [send] to either the default [IOClient] or [Tailscale.instance.http.client]
-/// based on the current [FinampSettings.useEmbeddedTailscale] flag and whether
-/// tsnet is up.
+/// based on whether the request host is a Tailscale path (`*.ts.net` / `100.x`).
+///
+/// **Tailnet hosts never fall back to the OS stack** — MagicDNS is not
+/// resolvable there, and a silent IOClient dial produced false "unreachable"
+/// for Music Finder / Jellyfin public URLs. LAN hosts stay on Wi‑Fi so Prefer
+/// Local Network still works.
 ///
 /// Do **not** use this from background isolates — Hive settings are not open
 /// there, and tsnet's [http.Client] is main-isolate. Prefer
@@ -40,22 +44,27 @@ class FinampHttpClient extends http.BaseClient {
 
   bool get _useEmbeddedTs => useEmbeddedTailscaleEnabled;
 
-  /// Userspace tsnet only for MagicDNS / CGNAT. LAN (`192.168.x`,
-  /// `downloads.local`) and normal internet stay on the OS Wi-Fi stack so
-  /// Network → Prefer Local Network can actually switch sources.
+  /// OS Wi‑Fi for non-tailnet hosts. Tailnet hosts: [Tailscale.instance.http]
+  /// only — never [IOClient].
   http.Client _clientFor(Uri url) {
-    if (!_useTsnetFor(url)) return _default;
-    if (!EmbeddedTailscaleService.isRunning) return _default;
+    if (!looksLikeTailnetHost(url)) return _default;
     try {
       return Tailscale.instance.http.client;
     } catch (e) {
-      _log.warning('Tailscale http.client unavailable ($e); using default');
-      return _default;
+      throw http.ClientException(
+        'Embedded Tailscale HTTP client unavailable for ${url.host}: $e',
+        url,
+      );
     }
   }
 
-  bool _useTsnetFor(Uri url) =>
-      _useEmbeddedTs && looksLikeTailnetHost(url);
+  /// True when this URL must go through userspace tsnet (and nowhere else).
+  static bool shouldUseTsnet({
+    required bool useEmbeddedTailscale,
+    required Uri url,
+  }) {
+    return useEmbeddedTailscale && looksLikeTailnetHost(url);
+  }
 
   /// MagicDNS (`*.ts.net`) or Tailscale CGNAT (`100.64.0.0/10`).
   static bool looksLikeTailnetHost(Uri uri) {
@@ -76,38 +85,53 @@ class FinampHttpClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    if (_useEmbeddedTs && looksLikeTailnetHost(request.url) && !EmbeddedTailscaleService.isRunning) {
-      // Resume only: enrolling with the control plane can take ~30s, and every
-      // queued request would wait behind it. Startup and Settings own that.
-      await EmbeddedTailscaleService.ensureRunning(timeout: const Duration(seconds: 8), allowEnroll: false);
-    }
-    if (_useEmbeddedTs && !EmbeddedTailscaleService.isRunning && looksLikeTailnetHost(request.url)) {
+    final tsPath = looksLikeTailnetHost(request.url);
+    if (tsPath) {
+      if (!_useEmbeddedTs) {
+        throw http.ClientException(
+          'URL ${request.url.host} is a Tailscale address. '
+          'Enable Settings → Embedded Tailscale (Connect) — the OS network '
+          'stack cannot resolve or reach MagicDNS / 100.x.',
+          request.url,
+        );
+      }
+      if (!EmbeddedTailscaleService.isRunning) {
+        // Resume only: enrolling with the control plane can take ~30s, and every
+        // queued request would wait behind it. Startup and Settings own that.
+        await EmbeddedTailscaleService.ensureRunning(
+          timeout: const Duration(seconds: 8),
+          allowEnroll: false,
+        );
+      }
+      if (!EmbeddedTailscaleService.isRunning) {
+        _log.warning(
+          'Tailnet request while tsnet is not Running: ${request.url} '
+          '(status=${EmbeddedTailscaleService.lastStatus?.state}).',
+        );
+        throw http.ClientException(
+          'Embedded Tailscale is not connected (node not Running). '
+          'Open Settings → Embedded Tailscale, paste a tskey-auth-… key, '
+          'and Connect before using MagicDNS URLs like ${request.url.host}.',
+          request.url,
+        );
+      }
+    } else if (_useEmbeddedTs && !EmbeddedTailscaleService.isRunning) {
       _log.warning(
-        'MagicDNS request while tsnet is not Running: ${request.url} '
-        '(status=${EmbeddedTailscaleService.lastStatus?.state}). '
-        'Connect with an auth key under Settings → Embedded Tailscale.',
-      );
-      throw http.ClientException(
-        'Embedded Tailscale is not connected (node not Running). '
-        'Open Settings → Embedded Tailscale, paste a tskey-auth-… key, '
-        'and Connect before using MagicDNS URLs like ${request.url.host}.',
-        request.url,
+        'useEmbeddedTailscale is on but tsnet is not running; '
+        'using OS client for non-tailnet ${request.url.host}',
       );
     }
-    if (_useEmbeddedTs && !EmbeddedTailscaleService.isRunning) {
-      _log.warning('useEmbeddedTailscale is on but tsnet is not running; using default client');
-    }
+
     try {
       return await _sendOnce(request);
     } catch (e) {
-      // Running-but-dead after a radio/VPN change: connectivity heal may have
-      // raced before Android interfaces were ready and then hit cooldown.
-      // Dial failures always force a rebuild (ignoreCooldown).
-      if (!_useEmbeddedTs || !looksLikeTailnetHost(request.url)) {
+      // Running-but-dead after a radio/VPN change. Tailnet hosts only —
+      // never heal+retry for LAN Wi‑Fi paths.
+      if (!tsPath || !_useEmbeddedTs) {
         rethrow;
       }
       _log.warning(
-        'MagicDNS request failed; healing embedded Tailscale then retrying once: $e',
+        'Tailnet request failed; healing embedded Tailscale then retrying once: $e',
       );
       final healed = await EmbeddedTailscaleService.healAfterNetworkChange(
         forceRestart: true,
@@ -132,7 +156,7 @@ class FinampHttpClient extends http.BaseClient {
 
   Future<http.StreamedResponse> _sendOnce(http.BaseRequest request) {
     final sent = _clientFor(request.url).send(request);
-    if (!_useTsnetFor(request.url)) return sent;
+    if (!looksLikeTailnetHost(request.url)) return sent;
     // tsnet's client has no connectionTimeout; hung sockets after a radio
     // change never threw, so heal-on-failure never ran until force-quit.
     return sent.timeout(_connectionTimeout);

@@ -30,9 +30,12 @@ WireGuard-over-UDP from inside Finamp and leaves the OS routing table alone.
    (the login screen still normalizes the common `jellyfin@tailnet` typo)
 6. Jellyfin API calls (Chopper), library `getItems`, cover-art cache downloads,
    **Music Finder** health/search/add, and **Network → Test both connections**
-   go through `FinampHttpClient`. **Only MagicDNS / `100.x` URLs use tsnet.**
-   LAN addresses (`192.168.x`, `*.local`) use the OS Wi-Fi stack so Prefer
-   Local Network can switch sources while embedded Tailscale stays on.
+   go through `FinampHttpClient`.
+   - **Tailscale path** (`*.ts.net` / `100.x`): **only** embedded tsnet — never
+     fall back to the OS HTTP stack (OS cannot resolve MagicDNS; that fallback
+     made Music Finder look "unreachable" on cellular).
+   - **LAN** (`192.168.x`, `*.local`): OS Wi‑Fi so Prefer Local Network can
+     switch Jellyfin sources while embedded Tailscale stays on.
 
 Library browsing uses a background isolate with a plain `IOClient` when
 Tailscale is **off**. When Embedded Tailscale is on (or the active URL is
@@ -175,7 +178,7 @@ flutter run
 - This stacked branch includes Music Finder + External Search. Hive
   `useEmbeddedTailscale` is `@HiveField(154)`; `musicFinderServerUrl` is
   `@HiveField(155)` and stays in Hive (SharedPreferences backup). Music Finder
-  HTTP uses `FinampHttpClient` (tsnet only for MagicDNS / `100.x`).
+  HTTP uses `FinampHttpClient`; a Tailscale-path base URL is tsnet-only.
 - Audio streaming uses the platform HTTP stack. On the LAN, Prefer Local uses
   `localAddress` over Wi‑Fi. Off-LAN with Embedded Tailscale, streams use the
   Public address, replayed through the loopback media proxy

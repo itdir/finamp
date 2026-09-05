@@ -39,4 +39,36 @@ void main() {
       );
     });
   });
+
+  group('shouldUseTsnet', () {
+    test('Music Finder MagicDNS uses tsnet when Embedded Tailscale is on', () {
+      expect(
+        FinampHttpClient.shouldUseTsnet(
+          useEmbeddedTailscale: true,
+          url: Uri.parse('http://downloads.tailfb0493.ts.net:8088'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('LAN stays on Wi-Fi even when Embedded Tailscale is on', () {
+      expect(
+        FinampHttpClient.shouldUseTsnet(
+          useEmbeddedTailscale: true,
+          url: Uri.parse('http://192.168.1.101:8096'),
+        ),
+        isFalse,
+      );
+    });
+
+    test('MagicDNS does not use tsnet when Embedded Tailscale is off', () {
+      expect(
+        FinampHttpClient.shouldUseTsnet(
+          useEmbeddedTailscale: false,
+          url: Uri.parse('https://htpc.tailfb0493.ts.net:8096'),
+        ),
+        isFalse,
+      );
+    });
+  });
 }

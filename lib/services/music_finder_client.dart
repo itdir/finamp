@@ -8,8 +8,9 @@ import 'finamp_http_client.dart';
 
 /// HTTP client for a self-hosted Music Finder service (non-Jellyfin).
 ///
-/// Uses [FinampHttpClient] so MagicDNS hosts (`*.ts.net`) go through embedded
-/// Tailscale when it is Running.
+/// Uses [FinampHttpClient]. When the saved base URL is a Tailscale path
+/// (`*.ts.net` / `100.x`), traffic goes **only** through embedded tsnet —
+/// never the OS stack.
 class MusicFinderClient {
   MusicFinderClient({http.Client? client})
     : _client = client ?? FinampHttpClient();
