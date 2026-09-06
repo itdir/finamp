@@ -37,6 +37,23 @@ WireGuard-over-UDP from inside Finamp and leaves the OS routing table alone.
    - **LAN** (`192.168.x`, `*.local`): OS Wi‑Fi so Prefer Local Network can
      switch Jellyfin sources while embedded Tailscale stays on.
 
+**Tailnet timeouts and pre-dial heal (Music Finder).** Android brings the tsnet
+node up more slowly than iOS — the host interface snapshot is only taken at node
+start — so a MagicDNS URL that worked on iPhone could still report "server
+unavailable" on a Pixel. Music Finder now matches `pingPublicServer`:
+
+- **Soft heal before the dial** — `MusicFinderClient.prepareForRequest()` (also
+  called from External Search before verifying a saved URL) runs
+  `healAfterNetworkChange(forceRestart: false)`, resuming a down node without
+  restarting a healthy one. Repeat calls inside a 3s window heal once.
+- **Longer tailnet budgets** — 15s dial (was 10s), 30s health check (was a flat
+  15s), 75s search/add, so the in-client heal + single retry can finish.
+  LAN/`*.local` keeps 10s/15s/60s.
+
+Both live in `music_finder_connection_policy.dart` as pure helpers
+(`musicFinderConnectionTimeout`, `musicFinderRequestTimeout`,
+`musicFinderPostTimeout`, `musicFinderShouldSoftHeal`) and are unit-tested.
+
 Library browsing uses a background isolate with a plain `IOClient` when
 Tailscale is **off**. When Embedded Tailscale is on (or the active URL is
 MagicDNS / `100.x`), those calls stay on the **main isolate** so they use

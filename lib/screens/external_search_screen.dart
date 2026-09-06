@@ -116,6 +116,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   Future<void> _verifySavedServer(String url) async {
+    // Screen open / retry is the first tailnet dial after the app was
+    // backgrounded, so resume a down tsnet node before judging the server
+    // unreachable. No-op for LAN URLs and when the node was just healed.
+    await _musicFinderClient.prepareForRequest(url);
     final ok = await _musicFinderClient.checkConnection(url);
     if (!mounted) {
       return;

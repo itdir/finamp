@@ -132,4 +132,102 @@ void main() {
       );
     });
   });
+
+  group('Music Finder timeout policy', () {
+    test('tailnet dials get the same 15s budget as the Jellyfin ping', () {
+      expect(
+        musicFinderConnectionTimeout(tailnet: true),
+        const Duration(seconds: 15),
+      );
+      expect(
+        musicFinderConnectionTimeout(tailnet: false),
+        const Duration(seconds: 10),
+      );
+    });
+
+    test('tailnet health check outlasts tsnet resume + heal + retry', () {
+      expect(
+        musicFinderRequestTimeout(tailnet: true),
+        const Duration(seconds: 30),
+      );
+      expect(
+        musicFinderRequestTimeout(tailnet: false),
+        const Duration(seconds: 15),
+      );
+    });
+
+    test('outer budget always exceeds the dial it wraps', () {
+      for (final tailnet in [true, false]) {
+        expect(
+          musicFinderRequestTimeout(tailnet: tailnet),
+          greaterThan(musicFinderConnectionTimeout(tailnet: tailnet)),
+        );
+        expect(
+          musicFinderPostTimeout(tailnet: tailnet),
+          greaterThan(musicFinderRequestTimeout(tailnet: tailnet)),
+        );
+      }
+    });
+  });
+
+  group('musicFinderShouldSoftHeal', () {
+    final now = DateTime(2026, 9, 6, 12);
+
+    test('heals before a first tailnet dial', () {
+      expect(
+        musicFinderShouldSoftHeal(
+          tailnet: true,
+          embeddedTailscaleEnabled: true,
+          now: now,
+        ),
+        isTrue,
+      );
+    });
+
+    test('never heals for a LAN url', () {
+      expect(
+        musicFinderShouldSoftHeal(
+          tailnet: false,
+          embeddedTailscaleEnabled: true,
+          now: now,
+        ),
+        isFalse,
+      );
+    });
+
+    test('never heals when Embedded Tailscale is off', () {
+      expect(
+        musicFinderShouldSoftHeal(
+          tailnet: true,
+          embeddedTailscaleEnabled: false,
+          now: now,
+        ),
+        isFalse,
+      );
+    });
+
+    test('screen pre-verify and client request heal once, not twice', () {
+      expect(
+        musicFinderShouldSoftHeal(
+          tailnet: true,
+          embeddedTailscaleEnabled: true,
+          now: now.add(const Duration(milliseconds: 200)),
+          lastSoftHealAt: now,
+        ),
+        isFalse,
+      );
+    });
+
+    test('heals again once the dedup window has passed', () {
+      expect(
+        musicFinderShouldSoftHeal(
+          tailnet: true,
+          embeddedTailscaleEnabled: true,
+          now: now.add(const Duration(seconds: 10)),
+          lastSoftHealAt: now,
+        ),
+        isTrue,
+      );
+    });
+  });
 }
