@@ -48,11 +48,13 @@ bool musicFinderShouldShowChangeServer({
       null;
 }
 
-/// Dial timeout handed to the underlying HTTP client.
+/// Dial / first-byte timeout for a Music Finder health check.
 ///
-/// Tailnet dials get the same 15s Jellyfin's tailnet ping uses: tsnet has to
-/// resume the node and pick a path before the first packet moves, which is
-/// slower on Android (host interface snapshot is only taken at node start).
+/// Handed to [FinampHttpClient] as `connectionTimeout`. On the tsnet path that
+/// value is applied to the whole `send()` future (time-to-first-byte), not only
+/// TCP connect — tsnet's client has no real connectionTimeout.
+///
+/// Tailnet health checks get the same 15s Jellyfin's tailnet ping uses.
 Duration musicFinderConnectionTimeout({required bool tailnet}) =>
     tailnet ? const Duration(seconds: 15) : const Duration(seconds: 10);
 
@@ -67,10 +69,23 @@ Duration musicFinderRequestTimeout({required bool tailnet}) =>
 
 /// End-to-end budget for a Music Finder POST (search / add).
 ///
-/// Search and add do real server-side work, so the LAN budget is already
-/// generous; tailnet only adds room for the heal + retry path.
+/// Search scrapes upstream torrent sites synchronously before the HTTP
+/// response starts, so this budget must cover TTFB, not just body download.
 Duration musicFinderPostTimeout({required bool tailnet}) =>
     tailnet ? const Duration(seconds: 75) : const Duration(seconds: 60);
+
+/// `FinampHttpClient` send / TTFB timeout for a Music Finder request.
+///
+/// Health checks stay short. Search/add must use the full post budget —
+/// otherwise a still-running scrape hits the 15s send timeout, FinampHttpClient
+/// force-heals tsnet and retries, and the UI shows a cascade of timeouts.
+Duration musicFinderSendTimeout({
+  required bool tailnet,
+  required bool longRunning,
+}) =>
+    longRunning
+        ? musicFinderPostTimeout(tailnet: tailnet)
+        : musicFinderConnectionTimeout(tailnet: tailnet);
 
 /// Whether a soft tsnet heal should run before dialing [tailnet].
 ///

@@ -168,6 +168,24 @@ void main() {
         );
       }
     });
+
+    test('search send timeout matches the post budget, not the health dial', () {
+      for (final tailnet in [true, false]) {
+        expect(
+          musicFinderSendTimeout(tailnet: tailnet, longRunning: false),
+          musicFinderConnectionTimeout(tailnet: tailnet),
+        );
+        expect(
+          musicFinderSendTimeout(tailnet: tailnet, longRunning: true),
+          musicFinderPostTimeout(tailnet: tailnet),
+        );
+      }
+      // A 15s health dial must not abort a still-scraping search.
+      expect(
+        musicFinderSendTimeout(tailnet: true, longRunning: true),
+        greaterThan(musicFinderConnectionTimeout(tailnet: true)),
+      );
+    });
   });
 
   group('musicFinderShouldSoftHeal', () {

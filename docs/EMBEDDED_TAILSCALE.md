@@ -49,10 +49,17 @@ unavailable" on a Pixel. Music Finder now matches `pingPublicServer`:
 - **Longer tailnet budgets** — 15s dial (was 10s), 30s health check (was a flat
   15s), 75s search/add, so the in-client heal + single retry can finish.
   LAN/`*.local` keeps 10s/15s/60s.
+- **Search TTFB uses the full post budget** — on the tsnet path,
+  `FinampHttpClient.connectionTimeout` is applied to the whole `send()`
+  (time-to-first-byte). Music Finder search scrapes upstream sites before the
+  HTTP response starts, so search/add use a separate client with the 75s/60s
+  send timeout. Using the 15s health dial here caused a timeout → force-heal →
+  retry cascade on iPhone even when the server was still working.
 
 Both live in `music_finder_connection_policy.dart` as pure helpers
 (`musicFinderConnectionTimeout`, `musicFinderRequestTimeout`,
-`musicFinderPostTimeout`, `musicFinderShouldSoftHeal`) and are unit-tested.
+`musicFinderPostTimeout`, `musicFinderSendTimeout`, `musicFinderShouldSoftHeal`)
+and are unit-tested.
 
 Library browsing uses a background isolate with a plain `IOClient` when
 Tailscale is **off**. When Embedded Tailscale is on (or the active URL is

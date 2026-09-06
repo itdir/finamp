@@ -21,10 +21,13 @@ class MusicFinderClient {
   MusicFinderClient({http.Client? client}) : _injectedClient = client;
 
   /// Test/DI override. When null, per-path clients are built on demand so
-  /// tailnet dials can use a longer [musicFinderConnectionTimeout].
+  /// health checks keep a short send timeout while search/add use the full
+  /// post budget (see [musicFinderSendTimeout]).
   final http.Client? _injectedClient;
-  http.Client? _lanClient;
-  http.Client? _tailnetClient;
+  http.Client? _lanHealthClient;
+  http.Client? _lanPostClient;
+  http.Client? _tailnetHealthClient;
+  http.Client? _tailnetPostClient;
   DateTime? _lastSoftHealAt;
   final _log = Logger('MusicFinderClient');
 
@@ -33,17 +36,23 @@ class MusicFinderClient {
     return uri != null && FinampHttpClient.looksLikeTailnetHost(uri);
   }
 
-  http.Client _clientFor({required bool tailnet}) {
+  http.Client _clientFor({required bool tailnet, required bool longRunning}) {
     final injected = _injectedClient;
     if (injected != null) return injected;
-    if (tailnet) {
-      return _tailnetClient ??= FinampHttpClient(
-        connectionTimeout: musicFinderConnectionTimeout(tailnet: true),
-      );
-    }
-    return _lanClient ??= FinampHttpClient(
-      connectionTimeout: musicFinderConnectionTimeout(tailnet: false),
+    final timeout = musicFinderSendTimeout(
+      tailnet: tailnet,
+      longRunning: longRunning,
     );
+    if (tailnet) {
+      if (longRunning) {
+        return _tailnetPostClient ??= FinampHttpClient(connectionTimeout: timeout);
+      }
+      return _tailnetHealthClient ??= FinampHttpClient(connectionTimeout: timeout);
+    }
+    if (longRunning) {
+      return _lanPostClient ??= FinampHttpClient(connectionTimeout: timeout);
+    }
+    return _lanHealthClient ??= FinampHttpClient(connectionTimeout: timeout);
   }
 
   /// Resume a down tsnet node before dialing a tailnet Music Finder URL.
@@ -137,7 +146,7 @@ class MusicFinderClient {
     final uri = _apiUri(baseUrl, path);
     final tailnet = _isTailnetUrl(baseUrl);
     await _softHealIfNeeded(tailnet);
-    final response = await _clientFor(tailnet: tailnet)
+    final response = await _clientFor(tailnet: tailnet, longRunning: false)
         .get(uri)
         .timeout(musicFinderRequestTimeout(tailnet: tailnet));
     return _parse(response);
@@ -152,7 +161,9 @@ class MusicFinderClient {
     final tailnet = _isTailnetUrl(baseUrl);
     await _softHealIfNeeded(tailnet);
     try {
-      final response = await _clientFor(tailnet: tailnet)
+      // Search TTFB is the scrape itself — use the long send timeout so a
+      // still-working request is not mistaken for a dead tsnet path.
+      final response = await _clientFor(tailnet: tailnet, longRunning: true)
           .post(
             uri,
             headers: const {"Content-Type": "application/json; charset=utf-8"},
