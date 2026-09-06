@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:tailscale/tailscale.dart';
 
+import 'embedded_tailscale_hostname_policy.dart';
 import 'finamp_secrets.dart';
 import 'finamp_settings_helper.dart';
 
@@ -404,13 +405,60 @@ class EmbeddedTailscaleService {
 
   static Future<void> storeAuthKey(String? authKey) => FinampSecrets.storeAuthKey(authKey);
 
+  /// Hostname for tsnet: locked Hive value, else [override], else default.
+  static String resolvedHostname({String? override}) {
+    try {
+      final s = FinampSettingsHelper.finampSettings;
+      return resolveEmbeddedTailscaleHostname(
+        saved: s.embeddedTailscaleHostname,
+        locked: s.embeddedTailscaleHostnameLocked,
+        draft: override,
+      );
+    } catch (_) {
+      final o = override?.trim();
+      if (o != null && o.isNotEmpty) {
+        return isValidTailscaleHostname(o) ? o : slugifyTailscaleHostname(o);
+      }
+      return kDefaultTailscaleHostname;
+    }
+  }
+
+  static void _lockHostnameAfterRunning(String hostname, TailscaleStatus status) {
+    if (!status.isRunning) return;
+    try {
+      FinampSetters.setEmbeddedTailscaleHostname(hostname);
+      FinampSetters.setEmbeddedTailscaleHostnameLocked(true);
+    } catch (e) {
+      _log.warning('Could not persist Tailscale hostname lock: $e');
+    }
+  }
+
+  /// Wipe node credentials and unlock hostname for a fresh setup.
+  static Future<void> resetRegistration() async {
+    try {
+      await logout();
+    } catch (e, st) {
+      _log.warning('resetRegistration: logout failed', e, st);
+    }
+    try {
+      FinampSetters.setEmbeddedTailscaleHostname(null);
+      FinampSetters.setEmbeddedTailscaleHostnameLocked(false);
+      FinampSetters.setUseEmbeddedTailscale(false);
+    } catch (e) {
+      _log.warning('resetRegistration: clear hostname failed: $e');
+    }
+  }
+
   /// Bring the node up.
   ///
   /// By default resumes from disk when possible. Pass [forceEnroll] / a fresh
   /// [authKey] to register (or re-register) with the control plane.
+  ///
+  /// [hostname] is an optional draft when unlocked; locked installs always use
+  /// the persisted Hive hostname.
   static Future<TailscaleStatus> up({
     String? authKey,
-    String hostname = 'finamp',
+    String? hostname,
     bool ephemeral = false,
     bool forceEnroll = false,
     bool resumeOnly = false,
@@ -421,11 +469,13 @@ class EmbeddedTailscaleService {
       return inFlight;
     }
 
+    final resolved = resolvedHostname(override: hostname);
+
     late final Future<TailscaleStatus> operation;
     operation =
         _upBody(
           authKey: authKey,
-          hostname: hostname,
+          hostname: resolved,
           ephemeral: ephemeral,
           forceEnroll: forceEnroll,
           resumeOnly: resumeOnly,
@@ -447,6 +497,7 @@ class EmbeddedTailscaleService {
   }) async {
     await ensureInitialized();
     _lastError = null;
+    _log.info('up() hostname=$hostname forceEnroll=$forceEnroll resumeOnly=$resumeOnly');
 
     var key = authKey?.trim();
     if (key == null || key.isEmpty) {
@@ -457,6 +508,7 @@ class EmbeddedTailscaleService {
       final resumed = await _tryResume(hostname: hostname, ephemeral: ephemeral);
       if (resumed != null) {
         if (resumed.isRunning) {
+          _lockHostnameAfterRunning(hostname, resumed);
           return resumed;
         }
         if (!resumed.needsLogin) {
@@ -484,7 +536,13 @@ class EmbeddedTailscaleService {
       );
     }
 
-    return _enrollWithAuthKey(key: key, hostname: hostname, ephemeral: ephemeral);
+    final enrolled = await _enrollWithAuthKey(
+      key: key,
+      hostname: hostname,
+      ephemeral: ephemeral,
+    );
+    _lockHostnameAfterRunning(hostname, enrolled);
+    return enrolled;
   }
 
   /// Resume without auth key (persisted node identity). Returns null if the

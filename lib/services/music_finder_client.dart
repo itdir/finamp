@@ -90,14 +90,21 @@ class MusicFinderClient {
     return Uri.parse("$root$path");
   }
 
-  /// Returns true when `GET {baseUrl}/api/health` returns HTTP 200.
-  Future<bool> checkConnection(String baseUrl) async {
+  /// Health-check result for Connect sheet / External Search UX.
+  Future<MusicFinderHealthCheckResult> checkConnection(String baseUrl) async {
     try {
       final response = await _getJson(baseUrl, "/api/health");
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+        return const MusicFinderHealthCheckResult.ok();
+      }
+      return MusicFinderHealthCheckResult.fail(
+        'Music Finder health returned HTTP ${response.statusCode}',
+      );
     } catch (e) {
       _log.warning('Music Finder health check failed: $e');
-      return false;
+      return MusicFinderHealthCheckResult.fail(
+        musicFinderHealthFailureDetail(e),
+      );
     }
   }
 
@@ -195,4 +202,16 @@ class _JsonResponse {
 
   final int statusCode;
   final Map<String, dynamic> json;
+}
+
+/// Outcome of [MusicFinderClient.checkConnection].
+class MusicFinderHealthCheckResult {
+  const MusicFinderHealthCheckResult.ok()
+      : ok = true,
+        detail = null;
+
+  const MusicFinderHealthCheckResult.fail(this.detail) : ok = false;
+
+  final bool ok;
+  final String? detail;
 }

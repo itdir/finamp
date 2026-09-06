@@ -471,6 +471,10 @@ class FinampSettingsAdapter extends TypeAdapter<FinampSettings> {
         sideloadLastNotifiedBuild: fields[160] == null
             ? DefaultSettings.sideloadLastNotifiedBuild
             : (fields[160] as num).toInt(),
+        embeddedTailscaleHostname: fields[161] as String?,
+        embeddedTailscaleHostnameLocked: fields[162] == null
+            ? DefaultSettings.embeddedTailscaleHostnameLocked
+            : fields[162] as bool,
       )
       ..sortBy = fields[7] as SortBy?
       ..sortOrder = fields[8] as SortOrder?
@@ -494,7 +498,7 @@ class FinampSettingsAdapter extends TypeAdapter<FinampSettings> {
   @override
   void write(BinaryWriter writer, FinampSettings obj) {
     writer
-      ..writeByte(154)
+      ..writeByte(156)
       ..writeByte(0)
       ..write(obj.isOffline)
       ..writeByte(1)
@@ -802,7 +806,11 @@ class FinampSettingsAdapter extends TypeAdapter<FinampSettings> {
       ..writeByte(159)
       ..write(obj.sideloadManifestUrl)
       ..writeByte(160)
-      ..write(obj.sideloadLastNotifiedBuild);
+      ..write(obj.sideloadLastNotifiedBuild)
+      ..writeByte(161)
+      ..write(obj.embeddedTailscaleHostname)
+      ..writeByte(162)
+      ..write(obj.embeddedTailscaleHostnameLocked);
   }
 
   @override

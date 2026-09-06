@@ -1314,6 +1314,22 @@ extension FinampSetters on FinampSettingsHelper {
     ).put("FinampSettings", finampSettingsTemp);
   }
 
+  static void setEmbeddedTailscaleHostname(String? newHostname) {
+    FinampSettings finampSettingsTemp = FinampSettingsHelper.finampSettings;
+    finampSettingsTemp.embeddedTailscaleHostname = newHostname;
+    Hive.box<FinampSettings>(
+      "FinampSettings",
+    ).put("FinampSettings", finampSettingsTemp);
+  }
+
+  static void setEmbeddedTailscaleHostnameLocked(bool locked) {
+    FinampSettings finampSettingsTemp = FinampSettingsHelper.finampSettings;
+    finampSettingsTemp.embeddedTailscaleHostnameLocked = locked;
+    Hive.box<FinampSettings>(
+      "FinampSettings",
+    ).put("FinampSettings", finampSettingsTemp);
+  }
+
   static void setSideloadUpdateMode(SideloadUpdateMode newSideloadUpdateMode) {
     FinampSettings finampSettingsTemp = FinampSettingsHelper.finampSettings;
     finampSettingsTemp.sideloadUpdateMode = newSideloadUpdateMode;
@@ -1801,6 +1817,14 @@ extension FinampSettingsProviderSelectors on StreamProvider<FinampSettings> {
       .select((value) => value.requireValue.useEmbeddedTailscale);
   ProviderListenable<String?> get musicFinderServerUrl => finampSettingsProvider
       .select((value) => value.requireValue.musicFinderServerUrl);
+  ProviderListenable<String?> get embeddedTailscaleHostname =>
+      finampSettingsProvider.select(
+        (value) => value.requireValue.embeddedTailscaleHostname,
+      );
+  ProviderListenable<bool> get embeddedTailscaleHostnameLocked =>
+      finampSettingsProvider.select(
+        (value) => value.requireValue.embeddedTailscaleHostnameLocked,
+      );
   ProviderListenable<SideloadUpdateMode> get sideloadUpdateMode =>
       finampSettingsProvider.select(
         (value) => value.requireValue.sideloadUpdateMode,

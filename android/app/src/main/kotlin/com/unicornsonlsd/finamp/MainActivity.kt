@@ -43,6 +43,9 @@ class MainActivity : AudioServiceActivity() {
 
         private const val SET_NATIVE_THEME_CHANNEL = "com.unicornsonlsd.finamp/set_native_theme"
         private const val SET_NATIVE_THEME_CHANNEL_LOG_TAG = "setNativeThemeChannel"
+
+        private const val DEVICE_DISPLAY_NAME_CHANNEL =
+            "com.unicornsonlsd.finamp/device_display_name"
     }
 
     private lateinit var mediaRouter: MediaRouter
@@ -79,6 +82,21 @@ class MainActivity : AudioServiceActivity() {
                 flutterEngine.dartExecutor.binaryMessenger,
                 SideloadUpdateChannel.CHANNEL,
             ).setMethodCallHandler(channel)
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            DEVICE_DISPLAY_NAME_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getDeviceName" -> {
+                    try {
+                        result.success(readAndroidDeviceDisplayName())
+                    } catch (e: Exception) {
+                        result.error("DEVICE_NAME", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
         }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -337,5 +355,17 @@ class MainActivity : AudioServiceActivity() {
 
     private fun showOutputSwitcherDialog() {
         SystemOutputSwitcherDialogController.showDialog(this)
+    }
+
+    /** Settings → About phone → Device name (Android 7.1+), else Bluetooth name. */
+    private fun readAndroidDeviceDisplayName(): String {
+        var name: String? = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            name = Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME)
+        }
+        if (name.isNullOrBlank()) {
+            name = Settings.Secure.getString(contentResolver, "bluetooth_name")
+        }
+        return name?.trim().orEmpty()
     }
 }

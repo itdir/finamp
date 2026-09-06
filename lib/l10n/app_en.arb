@@ -2365,6 +2365,15 @@
     "embeddedTailscaleOpenLoginSubtitle": "Complete interactive Tailscale login in the browser",
     "embeddedTailscaleLoginClipboardHint": "Complete Tailscale login from the Tailscale admin / auth flow for this node",
     "embeddedTailscaleLoginCopied": "Login hint copied to clipboard",
+    "embeddedTailscaleHostnameLabel": "Device name for Tailscale",
+    "embeddedTailscaleHostnameHint": "bps-iphone",
+    "embeddedTailscaleHostnameHelper": "Shown in the Tailscale admin console. Editable until first successful connect.",
+    "embeddedTailscaleHostnameLockedHint": "Locked after connect. Use Re-register to choose a new name.",
+    "embeddedTailscaleHostnameInvalid": "Use letters, numbers, and hyphens only (e.g. bps-iphone).",
+    "embeddedTailscaleReRegisterTitle": "Re-register this device",
+    "embeddedTailscaleReRegisterSubtitle": "Wipe local Tailscale identity and unlock the device name for a fresh setup",
+    "embeddedTailscaleReRegisterConfirm": "This revokes the node and clears the saved hostname. You will need a new auth key. Delete the old machine in the Tailscale admin console if it still appears offline.",
+    "embeddedTailscaleReRegisterConfirmButton": "Re-register",
     "embeddedTailscaleLogoutTitle": "Log out / reset node",
     "embeddedTailscaleLogoutSubtitle": "Revoke this node and wipe the local WireGuard key",
     "downloadPaused": "Downloading paused because device is not connected to WiFi",
@@ -3803,6 +3812,10 @@
   "musicFinderConnectFailed": "Could not connect to Music Finder server",
   "@musicFinderConnectFailed": {
     "description": "Error when the Music Finder URL does not return HTTP 200"
+  },
+  "musicFinderOpenEmbeddedTailscale": "Open Embedded Tailscale",
+  "@musicFinderOpenEmbeddedTailscale": {
+    "description": "SnackBar / sheet action when a MagicDNS Music Finder URL fails because tsnet is down"
   },
   "musicFinderServerSheetTitle": "Music Finder server",
   "@musicFinderServerSheetTitle": {

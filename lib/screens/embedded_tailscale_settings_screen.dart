@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:finamp/components/finamp_app_bar_back_button.dart';
 import 'package:finamp/l10n/app_localizations.dart';
+import 'package:finamp/services/device_display_name.dart';
+import 'package:finamp/services/embedded_tailscale_hostname_policy.dart';
 import 'package:finamp/services/embedded_tailscale_service.dart';
 import 'package:finamp/services/finamp_settings_helper.dart';
 import 'package:flutter/material.dart';
@@ -25,14 +27,19 @@ class EmbeddedTailscaleSettingsScreen extends ConsumerStatefulWidget {
 class _EmbeddedTailscaleSettingsScreenState
     extends ConsumerState<EmbeddedTailscaleSettingsScreen> {
   final _authKeyController = TextEditingController();
+  final _hostnameController = TextEditingController();
   StreamSubscription<NodeState>? _stateSub;
   TailscaleStatus? _status;
   String? _error;
   bool _busy = false;
+  bool _hostnameReady = false;
 
   /// Interactive browser login is unsafe on iOS sideloads (empty NSUserActivity
   /// abort). Auth keys only.
   bool get _requireAuthKey => Platform.isIOS || Platform.isAndroid;
+
+  bool get _hostnameLocked =>
+      FinampSettingsHelper.finampSettings.embeddedTailscaleHostnameLocked;
 
   @override
   void initState() {
@@ -42,6 +49,7 @@ class _EmbeddedTailscaleSettingsScreenState
   }
 
   Future<void> _bootstrap() async {
+    await _prefillHostname();
     final stored = await EmbeddedTailscaleService.loadStoredAuthKey();
     if (stored != null && mounted) {
       _authKeyController.text = stored;
@@ -56,11 +64,13 @@ class _EmbeddedTailscaleSettingsScreenState
         setState(() => _busy = true);
         final status = await EmbeddedTailscaleService.up(
           authKey: stored,
+          hostname: _draftHostnameOrNull(),
         );
         if (mounted) {
           setState(() {
             _status = status;
             _busy = false;
+            _syncHostnameFromSettings();
           });
         }
       }
@@ -74,10 +84,60 @@ class _EmbeddedTailscaleSettingsScreenState
     }
   }
 
+  Future<void> _prefillHostname() async {
+    final settings = FinampSettingsHelper.finampSettings;
+    final saved = settings.embeddedTailscaleHostname?.trim();
+    if (saved != null && saved.isNotEmpty) {
+      _hostnameController.text = saved;
+    } else {
+      final deviceName = await DeviceDisplayName.read();
+      if (!mounted) return;
+      _hostnameController.text = slugifyTailscaleHostname(deviceName);
+    }
+    if (mounted) setState(() => _hostnameReady = true);
+  }
+
+  void _syncHostnameFromSettings() {
+    final saved =
+        FinampSettingsHelper.finampSettings.embeddedTailscaleHostname?.trim();
+    if (saved != null && saved.isNotEmpty) {
+      _hostnameController.text = saved;
+    }
+  }
+
+  String? _draftHostnameOrNull() {
+    if (_hostnameLocked) return null;
+    final raw = _hostnameController.text.trim();
+    return raw.isEmpty ? null : raw;
+  }
+
+  String? _validateHostname(AppLocalizations l10n) {
+    if (_hostnameLocked) return null;
+    final raw = _hostnameController.text.trim();
+    if (raw.isEmpty) {
+      return l10n.embeddedTailscaleHostnameInvalid;
+    }
+    final slug = isValidTailscaleHostname(raw)
+        ? raw
+        : slugifyTailscaleHostname(raw);
+    if (!isValidTailscaleHostname(slug)) {
+      return l10n.embeddedTailscaleHostnameInvalid;
+    }
+    if (slug != raw) {
+      _hostnameController.text = slug;
+    }
+    return null;
+  }
+
   void _attachStateListener() {
     _stateSub?.cancel();
     _stateSub = EmbeddedTailscaleService.listenState((s) {
-      if (mounted) setState(() => _status = s);
+      if (mounted) {
+        setState(() {
+          _status = s;
+          if (s.isRunning) _syncHostnameFromSettings();
+        });
+      }
     });
   }
 
@@ -85,10 +145,19 @@ class _EmbeddedTailscaleSettingsScreenState
   void dispose() {
     _stateSub?.cancel();
     _authKeyController.dispose();
+    _hostnameController.dispose();
     super.dispose();
   }
 
   Future<void> _onToggle(bool enabled) async {
+    final l10n = AppLocalizations.of(context)!;
+    if (enabled) {
+      final hostnameError = _validateHostname(l10n);
+      if (hostnameError != null) {
+        setState(() => _error = hostnameError);
+        return;
+      }
+    }
     FinampSetters.setUseEmbeddedTailscale(enabled);
     setState(() {
       _error = null;
@@ -100,16 +169,31 @@ class _EmbeddedTailscaleSettingsScreenState
         if (_requireAuthKey && key.isEmpty) {
           FinampSetters.setUseEmbeddedTailscale(false);
           setState(() {
-            _error = AppLocalizations.of(context)!.embeddedTailscaleAuthKeyRequired;
+            _error = l10n.embeddedTailscaleAuthKeyRequired;
           });
           return;
+        }
+        if (!_hostnameLocked) {
+          FinampSetters.setEmbeddedTailscaleHostname(
+            resolveEmbeddedTailscaleHostname(
+              saved: null,
+              locked: false,
+              draft: _hostnameController.text,
+            ),
+          );
         }
         await EmbeddedTailscaleService.ensureInitialized();
         _attachStateListener();
         final status = await EmbeddedTailscaleService.up(
           authKey: key.isEmpty ? null : key,
+          hostname: _draftHostnameOrNull(),
         );
-        if (mounted) setState(() => _status = status);
+        if (mounted) {
+          setState(() {
+            _status = status;
+            _syncHostnameFromSettings();
+          });
+        }
       } else {
         await EmbeddedTailscaleService.down();
         if (mounted) {
@@ -127,6 +211,12 @@ class _EmbeddedTailscaleSettingsScreenState
   }
 
   Future<void> _connectWithKey() async {
+    final l10n = AppLocalizations.of(context)!;
+    final hostnameError = _validateHostname(l10n);
+    if (hostnameError != null) {
+      setState(() => _error = hostnameError);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -135,9 +225,18 @@ class _EmbeddedTailscaleSettingsScreenState
       final key = _authKeyController.text.trim();
       if (_requireAuthKey && key.isEmpty) {
         setState(() {
-          _error = AppLocalizations.of(context)!.embeddedTailscaleAuthKeyRequired;
+          _error = l10n.embeddedTailscaleAuthKeyRequired;
         });
         return;
+      }
+      if (!_hostnameLocked) {
+        FinampSetters.setEmbeddedTailscaleHostname(
+          resolveEmbeddedTailscaleHostname(
+            saved: null,
+            locked: false,
+            draft: _hostnameController.text,
+          ),
+        );
       }
       await EmbeddedTailscaleService.ensureInitialized();
       _attachStateListener();
@@ -145,9 +244,15 @@ class _EmbeddedTailscaleSettingsScreenState
       // Explicit Connect with a key: enroll if resume is not already Running.
       final status = await EmbeddedTailscaleService.up(
         authKey: key.isEmpty ? null : key,
+        hostname: _draftHostnameOrNull(),
         forceEnroll: key.isNotEmpty && EmbeddedTailscaleService.isRunning != true,
       );
-      if (mounted) setState(() => _status = status);
+      if (mounted) {
+        setState(() {
+          _status = status;
+          _syncHostnameFromSettings();
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -155,16 +260,41 @@ class _EmbeddedTailscaleSettingsScreenState
     }
   }
 
-  Future<void> _logout() async {
+  Future<void> _confirmReRegister() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.embeddedTailscaleReRegisterTitle),
+        content: Text(l10n.embeddedTailscaleReRegisterConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.embeddedTailscaleReRegisterConfirmButton),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _reRegister();
+  }
+
+  Future<void> _reRegister() async {
     setState(() => _busy = true);
     try {
-      await EmbeddedTailscaleService.logout();
-      if (mounted) {
-        setState(() {
-          _status = TailscaleStatus.stopped;
-          _error = null;
-        });
-      }
+      await EmbeddedTailscaleService.resetRegistration();
+      _authKeyController.clear();
+      final deviceName = await DeviceDisplayName.read();
+      if (!mounted) return;
+      setState(() {
+        _status = TailscaleStatus.stopped;
+        _error = null;
+        _hostnameController.text = slugifyTailscaleHostname(deviceName);
+      });
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -191,6 +321,9 @@ class _EmbeddedTailscaleSettingsScreenState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final enabled = ref.watch(finampSettingsProvider.useEmbeddedTailscale);
+    final locked = ref.watch(finampSettingsProvider.embeddedTailscaleHostnameLocked);
+    final hostnameEditable =
+        embeddedTailscaleHostnameIsEditable(locked: locked) && !_busy;
 
     return Scaffold(
       appBar: AppBar(
@@ -222,6 +355,26 @@ class _EmbeddedTailscaleSettingsScreenState
               subtitle: Text(_error!),
             ),
           const Divider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: TextField(
+              controller: _hostnameController,
+              enabled: hostnameEditable && _hostnameReady,
+              autocorrect: false,
+              enableSuggestions: false,
+              smartDashesType: SmartDashesType.disabled,
+              smartQuotesType: SmartQuotesType.disabled,
+              textCapitalization: TextCapitalization.none,
+              decoration: InputDecoration(
+                labelText: l10n.embeddedTailscaleHostnameLabel,
+                hintText: l10n.embeddedTailscaleHostnameHint,
+                helperText: locked
+                    ? l10n.embeddedTailscaleHostnameLockedHint
+                    : l10n.embeddedTailscaleHostnameHelper,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: TextField(
@@ -279,11 +432,11 @@ class _EmbeddedTailscaleSettingsScreenState
             ),
           const Divider(),
           ListTile(
-            title: Text(l10n.embeddedTailscaleLogoutTitle),
-            subtitle: Text(l10n.embeddedTailscaleLogoutSubtitle),
-            trailing: const Icon(Icons.logout),
-            enabled: !_busy && enabled,
-            onTap: _busy || !enabled ? null : _logout,
+            title: Text(l10n.embeddedTailscaleReRegisterTitle),
+            subtitle: Text(l10n.embeddedTailscaleReRegisterSubtitle),
+            trailing: const Icon(Icons.refresh),
+            enabled: !_busy,
+            onTap: _busy ? null : _confirmReRegister,
           ),
         ],
       ),

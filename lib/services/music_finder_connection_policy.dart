@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// Pure helpers for Music Finder connection UX.
 ///
 /// The saved server URL lives in Hive (plus SharedPreferences backup). A failed
@@ -102,4 +104,75 @@ bool musicFinderShouldSoftHeal({
   if (!tailnet || !embeddedTailscaleEnabled) return false;
   if (lastSoftHealAt == null) return true;
   return now.difference(lastSoftHealAt) >= window;
+}
+
+/// User-visible detail when a Music Finder health check fails.
+///
+/// Prefer the underlying [http.ClientException] / timeout text over a generic
+/// "could not connect" — MagicDNS failures are usually "Embedded Tailscale is
+/// not connected", not a wrong URL.
+String musicFinderHealthFailureDetail(Object error) {
+  if (error is TimeoutException) {
+    return 'Timed out reaching the Music Finder server. '
+        'If this is a Tailscale URL, open Settings → Embedded Tailscale and '
+        'confirm the node is Running, then try again.';
+  }
+  var text = error.toString().trim();
+  const prefixes = [
+    'Exception: ',
+    'ClientException: ',
+    'HttpException: ',
+    'SocketException: ',
+  ];
+  var stripped = true;
+  while (stripped) {
+    stripped = false;
+    for (final prefix in prefixes) {
+      if (text.startsWith(prefix)) {
+        text = text.substring(prefix.length).trim();
+        stripped = true;
+        break;
+      }
+    }
+  }
+  // ClientException appends ", uri=…" — keep the human message only.
+  final uriIdx = text.lastIndexOf(', uri=');
+  if (uriIdx > 0) {
+    text = text.substring(0, uriIdx).trim();
+  }
+  if (text.isEmpty) {
+    return 'Could not connect to Music Finder server';
+  }
+  return text;
+}
+
+/// True when a forced tsnet rebuild should run after a soft heal still left
+/// the node down (Android cold start / stale Running-but-dead path).
+bool musicFinderShouldForceHealAfterSoftMiss({
+  required bool tailnet,
+  required bool embeddedTailscaleEnabled,
+  required bool isRunning,
+  required bool isAndroid,
+}) {
+  return isAndroid &&
+      tailnet &&
+      embeddedTailscaleEnabled &&
+      !isRunning;
+}
+
+/// Offer a deep-link to Embedded Tailscale settings when MagicDNS is the likely
+/// failure mode (URL is tailnet and tsnet is not Running, or the error text
+/// already names Embedded Tailscale).
+bool musicFinderShouldOfferEmbeddedTailscaleSettings({
+  required bool tailnetUrl,
+  required bool tsnetRunning,
+  String? failureDetail,
+}) {
+  if (!tailnetUrl) return false;
+  if (!tsnetRunning) return true;
+  final d = (failureDetail ?? '').toLowerCase();
+  return d.contains('embedded tailscale') ||
+      d.contains('not connected') ||
+      d.contains('needs login') ||
+      d.contains('needs an auth key');
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:finamp/services/music_finder_connection_policy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -245,6 +247,61 @@ void main() {
           lastSoftHealAt: now,
         ),
         isTrue,
+      );
+    });
+  });
+
+  group('musicFinderHealthFailureDetail', () {
+    test('strips ClientException uri suffix', () {
+      expect(
+        musicFinderHealthFailureDetail(
+          Exception(
+            'ClientException: Embedded Tailscale is not connected, uri=http://x.ts.net/',
+          ),
+        ),
+        'Embedded Tailscale is not connected',
+      );
+    });
+
+    test('describes timeouts with Tailscale hint', () {
+      expect(
+        musicFinderHealthFailureDetail(TimeoutException('health')),
+        contains('Embedded Tailscale'),
+      );
+    });
+  });
+
+  group('musicFinderShouldOfferEmbeddedTailscaleSettings', () {
+    test('offers when MagicDNS url and tsnet down', () {
+      expect(
+        musicFinderShouldOfferEmbeddedTailscaleSettings(
+          tailnetUrl: true,
+          tsnetRunning: false,
+          failureDetail: null,
+        ),
+        isTrue,
+      );
+    });
+
+    test('offers when detail names Embedded Tailscale even if Running', () {
+      expect(
+        musicFinderShouldOfferEmbeddedTailscaleSettings(
+          tailnetUrl: true,
+          tsnetRunning: true,
+          failureDetail: 'Embedded Tailscale is not connected',
+        ),
+        isTrue,
+      );
+    });
+
+    test('never offers for LAN urls', () {
+      expect(
+        musicFinderShouldOfferEmbeddedTailscaleSettings(
+          tailnetUrl: false,
+          tsnetRunning: false,
+          failureDetail: 'Embedded Tailscale is not connected',
+        ),
+        isFalse,
       );
     });
   });

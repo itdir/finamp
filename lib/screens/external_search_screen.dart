@@ -8,6 +8,9 @@ import 'package:http/http.dart' as http;
 import '../components/ExternalSearch/music_finder_server_sheet.dart';
 import '../components/now_playing_bar.dart';
 import '../models/music_finder_models.dart';
+import '../screens/embedded_tailscale_settings_screen.dart';
+import '../services/embedded_tailscale_service.dart';
+import '../services/finamp_http_client.dart';
 import '../services/music_finder_client.dart';
 import '../services/music_finder_connection_policy.dart';
 import '../services/music_finder_url_store.dart';
@@ -120,12 +123,12 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     // backgrounded, so resume a down tsnet node before judging the server
     // unreachable. No-op for LAN URLs and when the node was just healed.
     await _musicFinderClient.prepareForRequest(url);
-    final ok = await _musicFinderClient.checkConnection(url);
+    final health = await _musicFinderClient.checkConnection(url);
     if (!mounted) {
       return;
     }
 
-    if (ok) {
+    if (health.ok) {
       setState(() {
         _isConnecting = false;
         _isConnected = true;
@@ -134,13 +137,13 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       return;
     }
 
-    _markServerUnreachable();
+    _markServerUnreachable(url: url, detail: health.detail);
   }
 
   /// Transient outage: keep the saved URL in memory and secure storage.
-  void _markServerUnreachable() {
+  void _markServerUnreachable({String? url, String? detail}) {
     final preserved = musicFinderUrlAfterUnreachable(
-      inMemoryUrl: _serverUrl,
+      inMemoryUrl: _serverUrl ?? url,
       secureStorageUrl: null,
       hiveUrl: MusicFinderUrlStore.current,
     );
@@ -158,11 +161,33 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       return;
     }
 
+    final effectiveUrl = preserved ?? url;
+    final uri = effectiveUrl != null ? Uri.tryParse(effectiveUrl) : null;
+    final tailnet =
+        uri != null && FinampHttpClient.looksLikeTailnetHost(uri);
+    final offerTsSettings = musicFinderShouldOfferEmbeddedTailscaleSettings(
+      tailnetUrl: tailnet,
+      tsnetRunning: EmbeddedTailscaleService.isRunning,
+      failureDetail: detail,
+    );
+    final l10n = AppLocalizations.of(context)!;
+    final message = (detail != null && detail.trim().isNotEmpty)
+        ? detail
+        : l10n.musicFinderServerUnavailable;
+
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(
-        content: Text(
-          AppLocalizations.of(context)!.musicFinderServerUnavailable,
-        ),
+        content: Text(message),
+        action: offerTsSettings
+            ? SnackBarAction(
+                label: l10n.musicFinderOpenEmbeddedTailscale,
+                onPressed: () {
+                  Navigator.of(context).pushNamed(
+                    EmbeddedTailscaleSettingsScreen.routeName,
+                  );
+                },
+              )
+            : null,
       ),
     );
   }
@@ -245,7 +270,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       _selectedUrls.clear();
       _selectedArtistId = null;
     });
-    _markServerUnreachable();
+    _markServerUnreachable(
+      url: _serverUrl,
+      detail: musicFinderHealthFailureDetail(error),
+    );
   }
 
   Future<void> _runSearch({String? artistId}) async {
