@@ -138,7 +138,8 @@ refresh code signing.
 Bluetooth / car skip buttons use iOS `MPRemoteCommandCenter` on the **phone**
 Flutter isolate. A second headless engine must not register `audio_service`
 first (that was stealing skip). See [IOS_SIDELOAD_DEBUG.md](IOS_SIDELOAD_DEBUG.md)
-§ UIScene.
+§ UIScene and the standing Flutter warning policy in
+[IOS_FLUTTER_WARNINGS.md](IOS_FLUTTER_WARNINGS.md).
 
 Longer-term ideas for private Mac-mini signing, Tailscale IPA hosting, and
 automated Personal Team refresh live under

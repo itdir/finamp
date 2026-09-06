@@ -119,7 +119,15 @@ show Untrusted Developer.
 ## UIScene
 
 Phone UI uses `FlutterSceneDelegate` + `FlutterImplicitEngineDelegate`
-([migration guide](https://docs.flutter.dev/to/uiscene-migration)).
+([migration guide](https://flutter.dev/to/uiscene-migration)).
+
+**Standing policy (UIScene CLI nag + SPM plugin warnings):** see
+[IOS_FLUTTER_WARNINGS.md](IOS_FLUTTER_WARNINGS.md). Summary: this fork
+**already** adopted UIScene; the Flutter CLI warning is expected with a
+custom CarPlay / AppDelegate setup — do **not** disable the scene manifest
+or treat the warning as a build failure. SPM “plugin does not support Swift
+Package Manager” is future dependency debt; stay on CocoaPods until those
+plugins gain SPM (or Flutter hard-errors).
 
 **Do not** `run()` a second `FlutterEngine` (“SharedEngine”) or call
 `GeneratedPluginRegistrant` on it. `audio_service` binds iOS

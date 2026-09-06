@@ -246,6 +246,12 @@ CarPlay uses the `flutter_carplay` plugin. To test CarPlay in the simulator:
 
 Note: CarPlay can only be tested on the simulator with the included entitlements. Testing on real hardware requires a CarPlay entitlement from Apple, which must be requested separately and is not included in this repository.
 
+**Fork note — Flutter UIScene / SPM build warnings:** this tree already uses
+UIScene; CocoaPods-only plugins (including `flutter_carplay`) may warn about
+Swift Package Manager. Standing policy for humans and agents:
+[docs/IOS_FLUTTER_WARNINGS.md](docs/IOS_FLUTTER_WARNINGS.md) (do not disable
+UIScene or force SPM-only to “clear” the logs).
+
 #### CarPlay Not Appearing in Simulator
 
 If Finamp doesn't appear in the CarPlay display after enabling it, the most common cause is corruption in the Xcode project file from repeated `pod install` runs. This can break entitlement embedding for simulator builds.

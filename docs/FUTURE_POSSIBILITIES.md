@@ -10,6 +10,7 @@ scheduled.
 |------|--------|--------|
 | Self-hosted iOS signing, sideload, and provisioning-refresh | Design / planning (2026-08-16) | [future/self-hosted-ios-signing-handoff.json](future/self-hosted-ios-signing-handoff.json) |
 | Stable / development update channel picker | Mentioned in [SIDELOAD_OTA.md](SIDELOAD_OTA.md); must keep integer build downgrade guard | — |
+| iOS plugins → Swift Package Manager | Deferred — CocoaPods until Flutter hard-errors or all deps support SPM | Standing policy: [IOS_FLUTTER_WARNINGS.md](IOS_FLUTTER_WARNINGS.md) §2 |
 
 ## Self-hosted iOS development & distribution
 
