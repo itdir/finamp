@@ -4,18 +4,84 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
 import '../models/music_finder_models.dart';
+import 'embedded_tailscale_service.dart';
 import 'finamp_http_client.dart';
+import 'music_finder_connection_policy.dart';
 
 /// HTTP client for a self-hosted Music Finder service (non-Jellyfin).
 ///
-/// Uses [FinampHttpClient] so MagicDNS hosts (`*.ts.net`) go through embedded
-/// Tailscale when it is Running.
+/// Uses [FinampHttpClient]. When the saved base URL is a Tailscale path
+/// (`*.ts.net` / `100.x`), traffic goes **only** through embedded tsnet —
+/// never the OS stack.
+///
+/// Tailnet requests also get Jellyfin's connect behavior: a soft tsnet heal
+/// before the dial and a longer budget, so Android's slower node bring-up does
+/// not read as "server unreachable".
 class MusicFinderClient {
-  MusicFinderClient({http.Client? client})
-    : _client = client ?? FinampHttpClient();
+  MusicFinderClient({http.Client? client}) : _injectedClient = client;
 
-  final http.Client _client;
+  /// Test/DI override. When null, per-path clients are built on demand so
+  /// health checks keep a short send timeout while search/add use the full
+  /// post budget (see [musicFinderSendTimeout]).
+  final http.Client? _injectedClient;
+  http.Client? _lanHealthClient;
+  http.Client? _lanPostClient;
+  http.Client? _tailnetHealthClient;
+  http.Client? _tailnetPostClient;
+  DateTime? _lastSoftHealAt;
   final _log = Logger('MusicFinderClient');
+
+  static bool _isTailnetUrl(String baseUrl) {
+    final uri = Uri.tryParse(baseUrl);
+    return uri != null && FinampHttpClient.looksLikeTailnetHost(uri);
+  }
+
+  http.Client _clientFor({required bool tailnet, required bool longRunning}) {
+    final injected = _injectedClient;
+    if (injected != null) return injected;
+    final timeout = musicFinderSendTimeout(
+      tailnet: tailnet,
+      longRunning: longRunning,
+    );
+    if (tailnet) {
+      if (longRunning) {
+        return _tailnetPostClient ??= FinampHttpClient(connectionTimeout: timeout);
+      }
+      return _tailnetHealthClient ??= FinampHttpClient(connectionTimeout: timeout);
+    }
+    if (longRunning) {
+      return _lanPostClient ??= FinampHttpClient(connectionTimeout: timeout);
+    }
+    return _lanHealthClient ??= FinampHttpClient(connectionTimeout: timeout);
+  }
+
+  /// Resume a down tsnet node before dialing a tailnet Music Finder URL.
+  ///
+  /// Safe to call from the UI before a health check: repeat calls inside the
+  /// dedup window are skipped, so the screen and the request below it heal once.
+  Future<void> prepareForRequest(String baseUrl) =>
+      _softHealIfNeeded(_isTailnetUrl(baseUrl));
+
+  Future<void> _softHealIfNeeded(bool tailnet) async {
+    if (!musicFinderShouldSoftHeal(
+      tailnet: tailnet,
+      embeddedTailscaleEnabled: FinampHttpClient.useEmbeddedTailscaleEnabled,
+      now: DateTime.now(),
+      lastSoftHealAt: _lastSoftHealAt,
+    )) {
+      return;
+    }
+    _lastSoftHealAt = DateTime.now();
+    try {
+      // Soft: resume if the node is down, but do not force a restart for a
+      // request that has not failed yet.
+      await EmbeddedTailscaleService.healAfterNetworkChange(
+        forceRestart: false,
+      );
+    } catch (e) {
+      _log.warning('Music Finder soft heal before request failed: $e');
+    }
+  }
 
   Uri _apiUri(String baseUrl, String path) {
     final root = baseUrl.endsWith("/")
@@ -24,14 +90,21 @@ class MusicFinderClient {
     return Uri.parse("$root$path");
   }
 
-  /// Returns true when `GET {baseUrl}/api/health` returns HTTP 200.
-  Future<bool> checkConnection(String baseUrl) async {
+  /// Health-check result for Connect sheet / External Search UX.
+  Future<MusicFinderHealthCheckResult> checkConnection(String baseUrl) async {
     try {
       final response = await _getJson(baseUrl, "/api/health");
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+        return const MusicFinderHealthCheckResult.ok();
+      }
+      return MusicFinderHealthCheckResult.fail(
+        'Music Finder health returned HTTP ${response.statusCode}',
+      );
     } catch (e) {
       _log.warning('Music Finder health check failed: $e');
-      return false;
+      return MusicFinderHealthCheckResult.fail(
+        musicFinderHealthFailureDetail(e),
+      );
     }
   }
 
@@ -78,9 +151,11 @@ class MusicFinderClient {
 
   Future<_JsonResponse> _getJson(String baseUrl, String path) async {
     final uri = _apiUri(baseUrl, path);
-    final response = await _client
+    final tailnet = _isTailnetUrl(baseUrl);
+    await _softHealIfNeeded(tailnet);
+    final response = await _clientFor(tailnet: tailnet, longRunning: false)
         .get(uri)
-        .timeout(const Duration(seconds: 15));
+        .timeout(musicFinderRequestTimeout(tailnet: tailnet));
     return _parse(response);
   }
 
@@ -90,14 +165,18 @@ class MusicFinderClient {
     Map<String, dynamic> body,
   ) async {
     final uri = _apiUri(baseUrl, path);
+    final tailnet = _isTailnetUrl(baseUrl);
+    await _softHealIfNeeded(tailnet);
     try {
-      final response = await _client
+      // Search TTFB is the scrape itself — use the long send timeout so a
+      // still-working request is not mistaken for a dead tsnet path.
+      final response = await _clientFor(tailnet: tailnet, longRunning: true)
           .post(
             uri,
             headers: const {"Content-Type": "application/json; charset=utf-8"},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(seconds: 60));
+          .timeout(musicFinderPostTimeout(tailnet: tailnet));
       return _parse(response);
     } on FormatException catch (e) {
       throw MusicFinderException("Invalid JSON response: $e");
@@ -123,4 +202,16 @@ class _JsonResponse {
 
   final int statusCode;
   final Map<String, dynamic> json;
+}
+
+/// Outcome of [MusicFinderClient.checkConnection].
+class MusicFinderHealthCheckResult {
+  const MusicFinderHealthCheckResult.ok()
+      : ok = true,
+        detail = null;
+
+  const MusicFinderHealthCheckResult.fail(this.detail) : ok = false;
+
+  final bool ok;
+  final String? detail;
 }

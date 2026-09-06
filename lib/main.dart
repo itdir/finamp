@@ -46,6 +46,7 @@ import 'package:finamp/services/downloads_service_backend.dart';
 import 'package:finamp/services/embedded_tailscale_service.dart';
 import 'package:finamp/services/finamp_logs_helper.dart';
 import 'package:finamp/services/finamp_secrets.dart';
+import 'package:finamp/services/music_finder_url_store.dart';
 import 'package:finamp/services/finamp_settings_helper.dart';
 import 'package:finamp/services/finamp_user_helper.dart';
 import 'package:finamp/services/ios_helpers.dart';
@@ -158,8 +159,10 @@ Future<void> main(List<String> args, {bool integrationTesting = false, bool logi
     _mainLog.info("Installed client certificate");
     await _setupFinampUserHelper();
     _mainLog.info("Setup user helper");
-    await _setupEmbeddedTailscale();
-    _mainLog.info("Setup embedded Tailscale");
+    // Tailscale control-plane startup can take up to 30 seconds. Start it in
+    // parallel so a slow or unavailable tailnet never blocks the first frame.
+    unawaited(_setupEmbeddedTailscale());
+    _mainLog.info("Started embedded Tailscale setup");
     await _setupJellyfinApiData();
     _mainLog.info("setup jellyfin api");
     _setupOfflineListenLogHelper();
@@ -376,13 +379,17 @@ Future<void> _setupProviders() async {
   var container = ProviderContainer(observers: [FinampProviderObserver()]);
   GetIt.instance.registerSingleton<ProviderContainer>(container);
   // Make sure that finampSettingsProvider always has a value available
-  container.listen(finampSettingsProvider, (_, __) {});
+  container.listen(finampSettingsProvider, (_, _) {});
   await container.read(finampSettingsProvider.future);
 
   await initImageCache();
 
   DataSourceService.create();
   AutoOffline.startWatching();
+  // Always watch connectivity for embedded Tailscale — Auto Offline may pause
+  // its own listener when disabled, which left MagicDNS users stuck after
+  // Wi‑Fi ↔ cellular until a full app restart.
+  EmbeddedTailscaleService.startNetworkWatching();
 
   unawaited(
     Stream<void>.periodic(Duration(seconds: 1)).forEach((_) {
@@ -827,21 +834,15 @@ void _migrateDeviceId() {
   }
 }
 
-/// Move Tailscale auth key + Music Finder URL into Keychain/Keystore and
-/// clear plaintext Hive / SharedPreferences copies.
+/// Tailscale auth key stays Keychain-only. Music Finder URL is Hive +
+/// SharedPreferences (never Keystore — that blocked Android saves).
 Future<void> _migrateSecretsToSecureStorage() async {
-  await FinampSecrets.ensureInitialized();
-
-  final hiveUrl =
-      FinampSettingsHelper.finampSettings.musicFinderServerUrl?.trim();
-  if (hiveUrl != null && hiveUrl.isNotEmpty) {
-    if (!FinampSecrets.hasMusicFinderServer) {
-      await FinampSecrets.setMusicFinderServerUrl(hiveUrl);
-      _mainLog.info('Migrated Music Finder URL from Hive to secure storage');
-    }
-    // Wipe plaintext Hive field regardless (URL now lives only in Keychain).
-    FinampSetters.setMusicFinderServerUrl(null);
+  try {
+    await FinampSecrets.ensureInitialized().timeout(const Duration(seconds: 2));
+  } catch (e, st) {
+    _mainLog.warning('Secure storage init skipped: $e', e, st);
   }
+  await MusicFinderUrlStore.reconcileOnStartup();
 }
 
 Future<void> _trustAndroidUserCerts() async {

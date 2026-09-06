@@ -1125,7 +1125,9 @@ class JellyfinApiHelper {
     final uri = Uri.tryParse(user.publicAddress);
     final tailnet = uri != null && FinampHttpClient.looksLikeTailnetHost(uri);
     if (tailnet && FinampSettingsHelper.finampSettings.useEmbeddedTailscale) {
-      await EmbeddedTailscaleService.ensureRunning();
+      // Soft heal: resume if down, restart only when health warnings are set.
+      // Aggressive rebuilds happen from connectivity watching / HTTP retry.
+      await EmbeddedTailscaleService.healAfterNetworkChange(forceRestart: false);
     }
     return await _pingSpecificServer(
       user.publicAddress,

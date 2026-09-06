@@ -127,6 +127,9 @@ class _SideloadUpdatesSettingsScreenState
     final l10n = AppLocalizations.of(context)!;
     switch (result.outcome) {
       case SideloadCheckOutcome.upToDate:
+        if (result.message != null && result.message!.isNotEmpty) {
+          return result.message!;
+        }
         return l10n.sideloadWorkerUpToDate +
             (m != null ? ' (${m.version})' : '');
       case SideloadCheckOutcome.updateAvailable:
@@ -363,15 +366,32 @@ class _SideloadUpdatesSettingsScreenState
                   : l10n.sideloadCheckNowIosSubtitle,
             ),
             trailing: _checking
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                ? ValueListenableBuilder<double?>(
+                    valueListenable: _service.downloadProgress,
+                    builder: (context, progress, _) => SizedBox(
+                      width: 24,
+                      height: 24,
+                      // Determinate once the APK body starts arriving — it is
+                      // a large download, and an endless spinner reads as
+                      // "nothing is happening".
+                      child: CircularProgressIndicator(strokeWidth: 2, value: progress),
+                    ),
                   )
                 : const Icon(Icons.system_update),
             enabled: !_checking,
             onTap: () => _checkNow(install: true),
           ),
+          if (_checking)
+            ValueListenableBuilder<double?>(
+              valueListenable: _service.downloadProgress,
+              builder: (context, progress, _) => progress == null
+                  ? const SizedBox.shrink()
+                  : ListTile(
+                      leading: const Icon(Icons.download),
+                      title: Text('Downloading update… ${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%'),
+                      subtitle: LinearProgressIndicator(value: progress),
+                    ),
+            ),
           if (Platform.isAndroid) ...[
             const Divider(),
             ListTile(

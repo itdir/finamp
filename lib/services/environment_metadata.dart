@@ -84,6 +84,14 @@ class DeviceInfo {
       "  Device Model: $deviceModel\n"
       "  OS Version: $osVersion\n"
       "  Platform: $platform";
+
+  /// [pretty] without the device name, which is often a personal name
+  /// ("BP's iPhone") and is never needed to reproduce a bug.
+  String get prettyForReport =>
+      "Device Info:\n"
+      "  Device Model: $deviceModel\n"
+      "  OS Version: $osVersion\n"
+      "  Platform: $platform";
 }
 
 /// Contains information about the app itself (name, version, version history).
@@ -148,6 +156,18 @@ class AppInfo {
       "App Info:\n"
       "  App Name: $appName\n"
       "  Package Name: $packageName\n"
+      "  Source: $source\n"
+      "  Version: $version\n"
+      "  Build Number: $buildNumber\n"
+      "  Installed At: ${installTime?.toIso8601String() ?? "n/a"}\n"
+      "  Updated At: ${updateTime?.toIso8601String() ?? "n/a"}\n"
+      "  Version History: ${versionHistory?.join(", ") ?? "n/a"}";
+
+  /// [pretty] without the package name, which identifies a sideload/fork
+  /// build of a user's own making rather than anything about the bug.
+  String get prettyForReport =>
+      "App Info:\n"
+      "  App Name: $appName\n"
       "  Source: $source\n"
       "  Version: $version\n"
       "  Build Number: $buildNumber\n"
@@ -237,5 +257,13 @@ class EnvironmentMetadata {
   String get pretty =>
       "${deviceInfo.pretty}\n"
       "${appInfo.pretty}\n"
+      "${serverInfo?.pretty ?? "Server Info: Not available"}";
+
+  /// [pretty] with identifying details dropped, for bundles a user may post
+  /// publicly. Log records are already censored as they are written
+  /// ([CensoredMessage]); this block never was.
+  String get prettyForReport =>
+      "${deviceInfo.prettyForReport}\n"
+      "${appInfo.prettyForReport}\n"
       "${serverInfo?.pretty ?? "Server Info: Not available"}";
 }

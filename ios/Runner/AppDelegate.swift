@@ -5,7 +5,10 @@ import MediaPlayer
 import Intents
 import AVFoundation
 
-// Shared engine for CarPlay - the flutter_carplay plugin requires this
+/// Optional CarPlay scene glue. Must never `run()` a second Dart isolate or
+/// register `audio_service` before the phone UI engine — that plugin keeps a
+/// process-wide `handlerChannel` bound to the first registrar, so car/lock
+/// skip buttons would hit a dead player.
 let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadlessExecution: true)
 
 @main
@@ -14,16 +17,9 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        // Shared engine for CarPlay (Release/Profile). Phone UI uses the implicit
-        // Flutter engine from FlutterSceneDelegate / didInitializeImplicitFlutterEngine.
-        flutterEngine.run()
-        GeneratedPluginRegistrant.register(with: flutterEngine)
-
-        // Method channels for CarPlay / Siri on the shared engine.
-        // TODO: This is a workaround because audio_service doesn't set playbackState on iOS.
-        // Consider contributing a fix to audio_service to set MPNowPlayingInfoCenter.playbackState on iOS.
-        setupPlaybackStateChannel(binaryMessenger: flutterEngine.binaryMessenger)
-        setupSiriIntentChannel(binaryMessenger: flutterEngine.binaryMessenger)
+        // Phone UI uses the implicit Flutter engine from FlutterSceneDelegate.
+        // Do not start SharedEngine here: Profile/Debug have no CarPlay, and a
+        // second `GeneratedPluginRegistrant` steals MPRemoteCommandCenter.
 
         // Exclude the documents and support folders from iCloud backup since we keep songs there.
         if let documentsDir = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {

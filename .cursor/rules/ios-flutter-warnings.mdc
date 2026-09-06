@@ -1,0 +1,33 @@
+---
+description: Standing Finamp iOS policy for Flutter UIScene + SPM warnings — do not mis-fix
+alwaysApply: true
+---
+
+# iOS Flutter warnings (standing)
+
+Canonical: `docs/IOS_FLUTTER_WARNINGS.md` (retirement criteria live there).
+Also: `rules/project/ios-flutter-warnings.md`, `AGENTS.md`.
+
+## UIScene CLI warning
+
+This fork **already** adopted UIScene (`SceneDelegate` / scene manifests /
+`FlutterImplicitEngineDelegate`). The Flutter nag is expected with custom
+CarPlay + AppDelegate. **Do not** treat it as a failed migration, **do not**
+disable the scene manifest (`_UIApplicationSceneManifest`), **do not**
+register phone-UI plugins on a second headless `FlutterEngine` (steals
+Bluetooth/car skip). Optional CLI silence only:
+`flutter.config.enable-uiscene-migration: false` (does not turn off UIScene).
+
+## SPM plugin warning
+
+CocoaPods remains supported. **Do not** force SPM-only iOS while
+`flutter_secure_storage`, `flutter_carplay`, `isar_flutter_libs`,
+`flutter_to_airplay`, or `flutter_discord_rpc` lack SPM. If a future Flutter
+makes SPM a hard error, fix on a dedicated branch via upstream/forks — do not
+drop critical plugins casually.
+
+## Scope
+
+These warnings are unrelated to Embedded Tailscale / Music Finder. Do not
+block feature work solely to clear the logs until the doc’s retirement
+criteria are met — then remove this rule and update `AGENTS.md`.

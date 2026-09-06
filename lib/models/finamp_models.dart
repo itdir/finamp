@@ -277,6 +277,8 @@ class DefaultSettings {
   /// Route Jellyfin HTTP through in-process Tailscale tsnet (coexists with ExpressVPN).
   static const useEmbeddedTailscale = false;
   static const String? musicFinderServerUrl = null;
+  static const String? embeddedTailscaleHostname = null;
+  static const embeddedTailscaleHostnameLocked = false;
   /// Sideload OTA: auto (scheduled) or manual (check on demand).
   static const sideloadUpdateMode = SideloadUpdateMode.auto;
   /// Minutes from local midnight for Auto OTA (default 3:33 AM → 213).
@@ -464,6 +466,9 @@ class FinampSettings {
     this.forceAudioOffloadingOnAndroid = DefaultSettings.forceAudioOffloadingOnAndroid,
     this.verboseLogging = DefaultSettings.verboseLogging,
     this.useEmbeddedTailscale = DefaultSettings.useEmbeddedTailscale,
+    this.embeddedTailscaleHostname = DefaultSettings.embeddedTailscaleHostname,
+    this.embeddedTailscaleHostnameLocked =
+        DefaultSettings.embeddedTailscaleHostnameLocked,
     this.previousTracksPersistenceMode = DefaultSettings.previousTracksPersistenceMode,
     required this.homeScreenConfiguration,
     required this.gridImageSize,
@@ -981,8 +986,8 @@ class FinampSettings {
 
   /// Base URL for the external Music Finder service (non-Jellyfin).
   ///
-  /// **Legacy Hive field only** — new writes go to [FinampSecrets]
-  /// (Keychain/Keystore). Cleared after one-time migration at startup.
+  /// Durable copy in Hive (same as other settings), plus SharedPreferences.
+  /// Not stored in Keychain/Keystore.
   ///
   /// Field **155** on the stacked `feat/music-finder` branch. Older
   /// music-finder-only builds stored this at 154 as a [String]; see
@@ -1007,6 +1012,15 @@ class FinampSettings {
   /// Dedupes in-app “update available” snackbars for the same remote build.
   @HiveField(160, defaultValue: DefaultSettings.sideloadLastNotifiedBuild)
   int sideloadLastNotifiedBuild = DefaultSettings.sideloadLastNotifiedBuild;
+
+  /// Stable Tailscale machine hostname (slug), chosen once at setup.
+  @HiveField(161)
+  String? embeddedTailscaleHostname;
+
+  /// When true, hostname is read-only until Re-register.
+  @HiveField(162, defaultValue: DefaultSettings.embeddedTailscaleHostnameLocked)
+  bool embeddedTailscaleHostnameLocked =
+      DefaultSettings.embeddedTailscaleHostnameLocked;
 
   /// Tolerant Hive upgrade: field 154 was bool (tsnet) or String? (music-finder).
   static bool hiveReadUseEmbeddedTailscale(Object? field154, Object? field155) {

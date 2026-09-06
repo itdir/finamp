@@ -26,7 +26,9 @@ import 'package:logging/logging.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'android_auto_helper.dart';
+import 'finamp_http_client.dart';
 import 'finamp_settings_helper.dart';
+import 'tailscale_media_proxy.dart';
 import 'ios_helpers.dart';
 import 'metadata_provider.dart';
 
@@ -842,6 +844,14 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
     }
   }
 
+  /// Cars and some Bluetooth head units send skip-forward/rewind instead of
+  /// next/previous track. Treat those as track skips, not ±10s seeks.
+  @override
+  Future<void> fastForward() => skipToNext();
+
+  @override
+  Future<void> rewind() => skipToPrevious(forceSkip: true);
+
   @override
   Future<void> skipToNext() async {
     _audioServiceBackgroundTaskLogger.fine(
@@ -1274,9 +1284,10 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
         if (FinampSettingsHelper.finampSettings.showStopButtonOnMediaNotification)
           MediaControl.stop.copyWith(androidIcon: "drawable/baseline_stop_24"),
       ],
-      systemActions: FinampSettingsHelper.finampSettings.showSeekControlsOnMediaNotification
-          ? const {MediaAction.seek, MediaAction.seekForward, MediaAction.seekBackward}
-          : {},
+      systemActions: mediaNotificationSystemActions(
+        showSeekControls: FinampSettingsHelper.finampSettings.showSeekControlsOnMediaNotification,
+        isIOS: Platform.isIOS,
+      ),
       androidCompactActionIndices: const [0, 1, 2],
       processingState: const {
         ProcessingState.idle: AudioProcessingState.idle,
@@ -1365,7 +1376,21 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
     // 0.18), the value would be wrong if changed while a track was playing since
     // Hive is bad at multi-isolate stuff.
 
-    final parsedBaseUrl = Uri.parse(finampUserHelper.currentUser!.baseURL);
+    // just_audio hands the URI to the platform media stack (AVPlayer /
+    // ExoPlayer). That stack does not use FinampHttpClient / embedded tsnet, so
+    // MagicDNS fails with DNS errors while Chopper API calls still succeed.
+    //
+    // On the server's LAN (Prefer Local → isLocal), stream [baseURL]/local)
+    // over OS Wi‑Fi — same as Jellyfin API. Off-LAN with Embedded Tailscale,
+    // use [publicAddress] and replay tailnet hosts through the loopback proxy.
+    final user = finampUserHelper.currentUser!;
+    final useEmbeddedTailscale = FinampSettingsHelper.finampSettings.useEmbeddedTailscale;
+    final useLocalLan = user.isLocal && user.preferLocalNetwork;
+    final streamBaseUrl = (useEmbeddedTailscale && !useLocalLan)
+        ? user.publicAddress
+        : user.baseURL;
+
+    final parsedBaseUrl = Uri.parse(streamBaseUrl);
 
     List<String> builtPath = List.from(parsedBaseUrl.pathSegments);
 
@@ -1405,7 +1430,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
       builtPath.addAll(["Items", mediaItem.extras!["itemJson"]["Id"] as String, "File"]);
     }
 
-    return Uri(
+    final directUri = Uri(
       host: parsedBaseUrl.host,
       port: parsedBaseUrl.port,
       scheme: parsedBaseUrl.scheme,
@@ -1413,6 +1438,30 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
       pathSegments: builtPath,
       queryParameters: queryParameters,
     );
+
+    // Log the address class only (never the URL or token) so exported logs show
+    // which path the native player was handed.
+    final addressClass = useLocalLan ? 'local' : 'public';
+
+    if (useEmbeddedTailscale && FinampHttpClient.looksLikeTailnetHost(directUri)) {
+      if (await TailscaleMediaProxy.instance.ensureStarted()) {
+        final proxied = TailscaleMediaProxy.instance.proxyUri(directUri);
+        if (proxied != null) {
+          _audioServiceBackgroundTaskLogger.info(
+            'Stream audio source: loopback proxy for tailnet $addressClass address',
+          );
+          return proxied;
+        }
+      }
+      _audioServiceBackgroundTaskLogger.warning(
+        'Stream audio source: tailnet $addressClass address without a loopback proxy; '
+        'the native player cannot resolve MagicDNS and playback will fail',
+      );
+      return directUri;
+    }
+
+    _audioServiceBackgroundTaskLogger.info('Stream audio source: direct $addressClass address');
+    return directUri;
   }
 
   @override
@@ -1578,4 +1627,15 @@ AudioServiceRepeatMode _audioServiceRepeatMode(LoopMode loopMode) {
     case LoopMode.all:
       return AudioServiceRepeatMode.all;
   }
+}
+
+/// Remote-center system actions. iOS omits hold-to-scan (`seekForward` /
+/// `seekBackward`) so car / Bluetooth skip stays next/previous track.
+Set<MediaAction> mediaNotificationSystemActions({
+  required bool showSeekControls,
+  required bool isIOS,
+}) {
+  if (!showSeekControls) return {};
+  if (isIOS) return const {MediaAction.seek};
+  return const {MediaAction.seek, MediaAction.seekForward, MediaAction.seekBackward};
 }

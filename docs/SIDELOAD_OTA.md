@@ -40,6 +40,11 @@ release/tag **`sideload-latest`** so the app’s baked URL stays stable:
 
 `https://github.com/itdir/finamp/releases/download/sideload-latest/latest.json`
 
+Each publish retargets `sideload-latest` to the commit being built and rewrites
+that release’s notes to the current `version+build` (asset `--clobber` alone
+leaves stale notes / Source zip). Version releases are created with
+`--target` set to `HEAD` so GitHub does not pin them to `main` by default.
+
 Useful flags: `SKIP_IOS=1`, `SKIP_ANDROID=1`, `SKIP_UPLOAD=1`, `NOTES='…'`,
 `GITHUB_REPO=itdir/finamp`.
 
@@ -82,6 +87,21 @@ immediately.
    does. Needed once so later overnight updates can install quietly.)
 3. After that, overnight automatic updates can run quietly.
 
+The published manifest must be the **same build or newer** than the installed
+app before step 2 can download or install anything. An older feed is blocked
+with both build numbers shown. This also protects deferred APKs that were
+downloaded before a newer build was installed by USB. This guard ships in
+**0.9.25-sideload.9+135** and later.
+
+Car / Bluetooth skip (steering-wheel next/previous) is wired to the phone
+isolate in **0.9.25-sideload.10+136** and later.
+
+Normal automatic/manual updates require a strictly newer build. Only
+**Finish setup** may reinstall the same build, because that one confirmation is
+what makes Finamp the installer of record. A future stable/development channel
+picker may choose a different manifest, but it must keep this integer build
+guard; selecting a channel must never authorize a downgrade.
+
 Emergency: `adb install -r dist/finamp-android-profile.apk` may require
 finishing setup again (step 2).
 
@@ -114,6 +134,34 @@ button appears only then — it is not a setup guide for SideStore itself.
 
 Weekly / 7-day personal cert refresh is still required; version OTA does not
 refresh code signing.
+
+Bluetooth / car skip buttons use iOS `MPRemoteCommandCenter` on the **phone**
+Flutter isolate. A second headless engine must not register `audio_service`
+first (that was stealing skip). See [IOS_SIDELOAD_DEBUG.md](IOS_SIDELOAD_DEBUG.md)
+§ UIScene and the standing Flutter warning policy in
+[IOS_FLUTTER_WARNINGS.md](IOS_FLUTTER_WARNINGS.md).
+
+Longer-term ideas for private Mac-mini signing, Tailscale IPA hosting, and
+automated Personal Team refresh live under
+[FUTURE_POSSIBILITIES.md](FUTURE_POSSIBILITIES.md) (not scheduled).
+
+## Troubleshooting
+
+### “Update check already running”
+
+A previous check started and never finished. Until build **134**, that could
+happen forever: the APK body download had no stall timeout, and
+`PackageInstaller` status waits had no deadline, so the in-memory busy lock
+never cleared.
+
+**Immediate recovery on an older build:** force-quit Finamp (swipe away from
+recents), reopen, then tap **Check for updates** again on Wi‑Fi. The lock is
+in memory only.
+
+From **0.9.25-sideload.8+134** onward: a stalled download fails after 60s
+without progress, installs time out after 5 minutes, and a stale busy lock
+is cleared after 40 minutes. The Updates screen also shows download percent
+for the large Profile APK.
 
 ## Public fork + Release assets
 

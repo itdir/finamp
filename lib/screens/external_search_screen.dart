@@ -8,14 +8,18 @@ import 'package:http/http.dart' as http;
 import '../components/ExternalSearch/music_finder_server_sheet.dart';
 import '../components/now_playing_bar.dart';
 import '../models/music_finder_models.dart';
-import '../services/finamp_secrets.dart';
+import '../screens/embedded_tailscale_settings_screen.dart';
+import '../services/embedded_tailscale_service.dart';
+import '../services/finamp_http_client.dart';
 import '../services/music_finder_client.dart';
+import '../services/music_finder_connection_policy.dart';
+import '../services/music_finder_url_store.dart';
 
 /// External Music Finder search against a self-hosted Music Finder service.
 ///
-/// The Music Finder base URL is stored encrypted ([FinampSecrets]). Opening
-/// this route without a reachable server prompts to reconnect without wiping
-/// the saved URL.
+/// The Music Finder base URL is stored in Hive and mirrored to Keychain.
+/// Opening this route without a reachable server prompts to reconnect without
+/// wiping the saved URL.
 class ExternalSearchScreen extends StatefulWidget {
   const ExternalSearchScreen({Key? key}) : super(key: key);
 
@@ -65,7 +69,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     _artistController.addListener(_onFieldChanged);
     _albumController.addListener(_onFieldChanged);
 
-    final savedUrl = FinampSecrets.musicFinderServerUrl?.trim();
+    final savedUrl = MusicFinderUrlStore.current;
     if (savedUrl == null || savedUrl.isEmpty) {
       // Always allow entry via the skull button; prompt to connect.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -115,12 +119,16 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
   }
 
   Future<void> _verifySavedServer(String url) async {
-    final ok = await _musicFinderClient.checkConnection(url);
+    // Screen open / retry is the first tailnet dial after the app was
+    // backgrounded, so resume a down tsnet node before judging the server
+    // unreachable. No-op for LAN URLs and when the node was just healed.
+    await _musicFinderClient.prepareForRequest(url);
+    final health = await _musicFinderClient.checkConnection(url);
     if (!mounted) {
       return;
     }
 
-    if (ok) {
+    if (health.ok) {
       setState(() {
         _isConnecting = false;
         _isConnected = true;
@@ -129,15 +137,18 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       return;
     }
 
-    await _leaveBecauseServerUnavailable();
+    _markServerUnreachable(url: url, detail: health.detail);
   }
 
-  Future<void> _leaveBecauseServerUnavailable() async {
-    // Keep the Hive URL — a failed health check (offline, MagicDNS not up yet,
-    // server restart) must not wipe the secret; that looked like "URL does not
-    // persist between launches."
+  /// Transient outage: keep the saved URL in memory and secure storage.
+  void _markServerUnreachable({String? url, String? detail}) {
+    final preserved = musicFinderUrlAfterUnreachable(
+      inMemoryUrl: _serverUrl ?? url,
+      secureStorageUrl: null,
+      hiveUrl: MusicFinderUrlStore.current,
+    );
     setState(() {
-      _serverUrl = null;
+      _serverUrl = preserved;
       _isConnected = false;
       _isConnecting = false;
       _result = null;
@@ -150,36 +161,50 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       return;
     }
 
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger?.showSnackBar(
+    final effectiveUrl = preserved ?? url;
+    final uri = effectiveUrl != null ? Uri.tryParse(effectiveUrl) : null;
+    final tailnet =
+        uri != null && FinampHttpClient.looksLikeTailnetHost(uri);
+    final offerTsSettings = musicFinderShouldOfferEmbeddedTailscaleSettings(
+      tailnetUrl: tailnet,
+      tsnetRunning: EmbeddedTailscaleService.isRunning,
+      failureDetail: detail,
+    );
+    final l10n = AppLocalizations.of(context)!;
+    final message = (detail != null && detail.trim().isNotEmpty)
+        ? detail
+        : l10n.musicFinderServerUnavailable;
+
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(
-        content: Text(
-          AppLocalizations.of(context)!.musicFinderServerUnavailable,
-        ),
+        content: Text(message),
+        action: offerTsSettings
+            ? SnackBarAction(
+                label: l10n.musicFinderOpenEmbeddedTailscale,
+                onPressed: () {
+                  Navigator.of(context).pushNamed(
+                    EmbeddedTailscaleSettingsScreen.routeName,
+                  );
+                },
+              )
+            : null,
       ),
     );
+  }
 
-    final connectedUrl = await MusicFinderServerSheet.show(
-      context,
-      client: _musicFinderClient,
-      isDismissible: true,
-    );
-    if (!mounted) {
+  Future<void> _retrySavedServer() async {
+    final url = (_serverUrl ?? MusicFinderUrlStore.current)?.trim();
+    if (url == null || url.isEmpty) {
+      await _openServerSheet(force: true);
       return;
     }
 
-    if (connectedUrl != null && connectedUrl.isNotEmpty) {
-      await FinampSecrets.setMusicFinderServerUrl(connectedUrl);
-      setState(() {
-        _serverUrl = connectedUrl;
-        _isConnected = true;
-        _isConnecting = false;
-        _searchError = null;
-      });
-      return;
-    }
-
-    Navigator.of(context).pop();
+    setState(() {
+      _serverUrl = url;
+      _isConnecting = true;
+      _searchError = null;
+    });
+    await _verifySavedServer(url);
   }
 
   Future<void> _openServerSheet({bool force = false}) async {
@@ -210,7 +235,7 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
         _addResult = null;
         _selectedUrls.clear();
       });
-      await FinampSecrets.setMusicFinderServerUrl(connectedUrl);
+      await MusicFinderUrlStore.save(connectedUrl);
       return;
     }
 
@@ -245,7 +270,10 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       _selectedUrls.clear();
       _selectedArtistId = null;
     });
-    await _leaveBecauseServerUnavailable();
+    _markServerUnreachable(
+      url: _serverUrl,
+      detail: musicFinderHealthFailureDetail(error),
+    );
   }
 
   Future<void> _runSearch({String? artistId}) async {
@@ -605,6 +633,60 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
     );
   }
 
+  Widget _buildOfflinePane(AppLocalizations localizations) {
+    final hasSavedUrl = musicFinderUrlAfterUnreachable(
+          inMemoryUrl: _serverUrl,
+          secureStorageUrl: null,
+          hiveUrl: MusicFinderUrlStore.current,
+        ) !=
+        null;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 48,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              localizations.musicFinderServerUnavailable,
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            if (hasSavedUrl) ...[
+              const SizedBox(height: 12),
+              Text(
+                localizations.musicFinderOfflineHint,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _isConnecting ? null : _retrySavedServer,
+              icon: const Icon(Icons.refresh),
+              label: Text(localizations.musicFinderRetryConnection),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: (_isConnecting || _isSearching || _isAdding)
+                  ? null
+                  : () => _openServerSheet(force: true),
+              child: Text(localizations.musicFinderChangeServer),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
@@ -621,7 +703,12 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
       appBar: AppBar(
         title: Text(localizations.externalSearch),
         actions: [
-          if (_isConnected)
+          if (musicFinderShouldShowChangeServer(
+            isConnected: _isConnected,
+            inMemoryUrl: _serverUrl,
+            hiveUrl: MusicFinderUrlStore.current,
+            secureStorageUrl: null,
+          ))
             IconButton(
               icon: const Icon(Icons.dns_outlined),
               tooltip: localizations.musicFinderChangeServer,
@@ -639,7 +726,9 @@ class _ExternalSearchScreenState extends State<ExternalSearchScreen> {
               const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: !_isConnected
-                  ? const Center(child: CircularProgressIndicator())
+                  ? (_isConnecting
+                      ? const Center(child: CircularProgressIndicator())
+                      : _buildOfflinePane(localizations))
                   : Column(
                       children: [
                         Flexible(

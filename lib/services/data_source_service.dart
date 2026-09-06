@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:core';
 
 import 'package:finamp/components/global_snackbar.dart';
@@ -10,6 +11,7 @@ import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
 import 'finamp_settings_helper.dart';
+import 'tailscale_media_proxy.dart';
 
 Logger _dataSourceServiceLogger = Logger("Data Source Service");
 
@@ -56,9 +58,39 @@ class DataSourceService {
 
     ref.listen(FinampUserHelper.finampCurrentUserProvider.select((user) => user?.baseURL), (_, newUrl) {
       _dataSourceServiceLogger.info("Base URL Changed: $newUrl");
-      bool isLocalUrl = finampUserHelper.currentUser?.isLocal ?? false;
-      _onDataSourceChange(isLocalUrl ? SourceChangeType.toLocalUrl : SourceChangeType.toRemoteUrl);
+      _onPlaybackAddressChange(finampUserHelper);
     });
+
+    // Off-LAN streaming uses publicAddress (+ loopback proxy for MagicDNS)
+    // when Embedded Tailscale is on; on-LAN Prefer Local uses baseURL/local.
+    // Rebuild when the Tailscale toggle or public address changes so the
+    // native player does not keep stale URLs after startup or handoffs.
+    ref.listen(finampSettingsProvider.useEmbeddedTailscale, (_, enabled) {
+      _dataSourceServiceLogger.info(
+        "Embedded Tailscale ${enabled ? 'enabled' : 'disabled'}; refreshing playback sources",
+      );
+      if (!enabled) {
+        unawaited(TailscaleMediaProxy.instance.stop());
+      }
+      _onPlaybackAddressChange(finampUserHelper);
+    });
+
+    ref.listen(FinampUserHelper.finampCurrentUserProvider.select((user) => user?.publicAddress), (previous, next) {
+      if (previous == next) return;
+      if (!FinampSettingsHelper.finampSettings.useEmbeddedTailscale) return;
+      _dataSourceServiceLogger.info("Public address changed while Embedded Tailscale enabled");
+      _onPlaybackAddressChange(finampUserHelper);
+    });
+  }
+
+  /// Effective streamed-audio address class (not the URL itself).
+  static void _onPlaybackAddressChange(FinampUserHelper finampUserHelper) {
+    final user = finampUserHelper.currentUser;
+    final isLocalUrl = user != null && user.isLocal && user.preferLocalNetwork;
+    _dataSourceServiceLogger.info(
+      "Playback address class: ${isLocalUrl ? 'local' : 'public'}",
+    );
+    _onDataSourceChange(isLocalUrl ? SourceChangeType.toLocalUrl : SourceChangeType.toRemoteUrl);
   }
 
   static Future<void> _onDataSourceChange(SourceChangeType event) async {

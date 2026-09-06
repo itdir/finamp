@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:finamp/l10n/app_localizations.dart';
 
+import '../../screens/embedded_tailscale_settings_screen.dart';
+import '../../services/embedded_tailscale_service.dart';
+import '../../services/finamp_http_client.dart';
 import '../../services/music_finder_client.dart';
+import '../../services/music_finder_connection_policy.dart';
 
 /// Modal sheet to enter and health-check a Music Finder base URL.
 ///
@@ -49,6 +53,7 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
   bool _isConnecting = false;
   bool _obscureUrl = true;
   String? _error;
+  bool _offerTailscaleSettings = false;
 
   @override
   void dispose() {
@@ -78,7 +83,10 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
 
     final validationError = _validate(_urlController.text);
     if (validationError != null) {
-      setState(() => _error = validationError);
+      setState(() {
+        _error = validationError;
+        _offerTailscaleSettings = false;
+      });
       return;
     }
 
@@ -86,23 +94,36 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
     setState(() {
       _isConnecting = true;
       _error = null;
+      _offerTailscaleSettings = false;
     });
 
-    final ok = await widget.client.checkConnection(url);
+    final health = await widget.client.checkConnection(url);
     if (!mounted) {
       return;
     }
 
-    if (ok) {
+    if (health.ok) {
       // Drop the typed secret from the field before the sheet closes.
       _urlController.clear();
       Navigator.of(context, rootNavigator: true).pop(url);
       return;
     }
 
+    final uri = Uri.tryParse(url);
+    final tailnet =
+        uri != null && FinampHttpClient.looksLikeTailnetHost(uri);
+    final offer = musicFinderShouldOfferEmbeddedTailscaleSettings(
+      tailnetUrl: tailnet,
+      tsnetRunning: EmbeddedTailscaleService.isRunning,
+      failureDetail: health.detail,
+    );
+    final localizations = AppLocalizations.of(context)!;
     setState(() {
       _isConnecting = false;
-      _error = AppLocalizations.of(context)!.musicFinderConnectFailed;
+      _error = (health.detail != null && health.detail!.trim().isNotEmpty)
+          ? health.detail
+          : localizations.musicFinderConnectFailed;
+      _offerTailscaleSettings = offer;
     });
   }
 
@@ -155,6 +176,7 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
                 hintText: "http://127.0.0.1:8088",
                 border: const OutlineInputBorder(),
                 errorText: _error,
+                errorMaxLines: 4,
                 suffixIcon: IconButton(
                   tooltip: _obscureUrl
                       ? localizations.musicFinderShowUrl
@@ -168,6 +190,23 @@ class _MusicFinderServerSheetState extends State<MusicFinderServerSheet> {
                 ),
               ),
             ),
+            if (_offerTailscaleSettings) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _isConnecting
+                      ? null
+                      : () {
+                          Navigator.of(context).pushNamed(
+                            EmbeddedTailscaleSettingsScreen.routeName,
+                          );
+                        },
+                  icon: const Icon(Icons.vpn_lock),
+                  label: Text(localizations.musicFinderOpenEmbeddedTailscale),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
