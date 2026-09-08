@@ -4,7 +4,6 @@ import Flutter
 import MediaPlayer
 import Intents
 import AVFoundation
-import Security
 
 /// Optional CarPlay scene glue. Must never `run()` a second Dart isolate or
 /// register `audio_service` before the phone UI engine — that plugin keeps a
@@ -165,26 +164,23 @@ extension AppDelegate {
         return formatter.string(from: expiration)
     }
 
+    /// Provision files are CMS-wrapped plists. `CMSDecoder` is awkward from
+    /// Swift on some SDKs, so extract the embedded XML plist by markers.
     private static func decodeMobileProvisionPlist(_ data: Data) -> [String: Any]? {
-        var decoder: CMSDecoder?
-        guard CMSDecoderCreate(&decoder) == errSecSuccess, let decoder else {
-            return nil
-        }
-        let updateStatus = data.withUnsafeBytes { raw -> OSStatus in
-            guard let base = raw.baseAddress else { return errSecParam }
-            return CMSDecoderUpdateMessage(decoder, base, data.count)
-        }
-        guard updateStatus == errSecSuccess else { return nil }
-        guard CMSDecoderFinalizeMessage(decoder) == errSecSuccess else { return nil }
-
-        var content: CFData?
-        guard CMSDecoderCopyContent(decoder, &content) == errSecSuccess,
-              let contentData = content as Data?
+        guard let asString = String(data: data, encoding: .isoLatin1)
+            ?? String(data: data, encoding: .ascii)
         else {
             return nil
         }
+        guard let start = asString.range(of: "<?xml"),
+              let end = asString.range(of: "</plist>")
+        else {
+            return nil
+        }
+        let xml = String(asString[start.lowerBound..<end.upperBound])
+        guard let xmlData = xml.data(using: .utf8) else { return nil }
         return try? PropertyListSerialization.propertyList(
-            from: contentData,
+            from: xmlData,
             options: [],
             format: nil
         ) as? [String: Any]
