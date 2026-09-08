@@ -4,6 +4,7 @@ import Flutter
 import MediaPlayer
 import Intents
 import AVFoundation
+import Security
 
 /// Optional CarPlay scene glue. Must never `run()` a second Dart isolate or
 /// register `audio_service` before the phone UI engine — that plugin keeps a
@@ -45,6 +46,7 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
         setupPlaybackStateChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
         setupSiriIntentChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
+        setupIosSigningChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
     }
 
     // Tell iOS to dispatch media intents to this AppDelegate (in-app intent handling, iOS 14+)
@@ -128,6 +130,64 @@ extension AppDelegate {
                 result(FlutterMethodNotImplemented)
             }
         }
+    }
+
+    /// Personal-team Profile expiry for Settings → Updates (read-only).
+    func setupIosSigningChannel(binaryMessenger: FlutterBinaryMessenger) {
+        let channel = FlutterMethodChannel(
+            name: "com.unicornsonlsd.finamp/ios_signing",
+            binaryMessenger: binaryMessenger
+        )
+        channel.setMethodCallHandler { (call, result) in
+            switch call.method {
+            case "getProvisioningExpiration":
+                result(Self.provisioningExpirationISO8601())
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+    }
+
+    /// ISO8601 UTC string from `embedded.mobileprovision` `ExpirationDate`, or nil.
+    private static func provisioningExpirationISO8601() -> String? {
+        guard let url = Bundle.main.url(
+            forResource: "embedded",
+            withExtension: "mobileprovision"
+        ),
+        let data = try? Data(contentsOf: url),
+        let plist = decodeMobileProvisionPlist(data),
+        let expiration = plist["ExpirationDate"] as? Date
+        else {
+            return nil
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: expiration)
+    }
+
+    private static func decodeMobileProvisionPlist(_ data: Data) -> [String: Any]? {
+        var decoder: CMSDecoder?
+        guard CMSDecoderCreate(&decoder) == errSecSuccess, let decoder else {
+            return nil
+        }
+        let updateStatus = data.withUnsafeBytes { raw -> OSStatus in
+            guard let base = raw.baseAddress else { return errSecParam }
+            return CMSDecoderUpdateMessage(decoder, base, data.count)
+        }
+        guard updateStatus == errSecSuccess else { return nil }
+        guard CMSDecoderFinalizeMessage(decoder) == errSecSuccess else { return nil }
+
+        var content: CFData?
+        guard CMSDecoderCopyContent(decoder, &content) == errSecSuccess,
+              let contentData = content as Data?
+        else {
+            return nil
+        }
+        return try? PropertyListSerialization.propertyList(
+            from: contentData,
+            options: [],
+            format: nil
+        ) as? [String: Any]
     }
 }
 

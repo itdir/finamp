@@ -5,6 +5,7 @@ import 'package:finamp/components/finamp_app_bar_back_button.dart';
 import 'package:finamp/l10n/app_localizations.dart';
 import 'package:finamp/models/finamp_models.dart';
 import 'package:finamp/services/finamp_settings_helper.dart';
+import 'package:finamp/services/ios_signing_expiry.dart';
 import 'package:finamp/services/sideload_update_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,6 +32,7 @@ class _SideloadUpdatesSettingsScreenState
   Map<String, dynamic>? _workerStatus;
   bool _checking = false;
   String? _statusMessage;
+  DateTime? _iosSigningExpiresAt;
   final _manifestController = TextEditingController();
 
   SideloadUpdateService get _service => GetIt.instance<SideloadUpdateService>();
@@ -53,6 +55,7 @@ class _SideloadUpdatesSettingsScreenState
     final info = await PackageInfo.fromPlatform();
     Map<String, dynamic>? setup;
     Map<String, dynamic>? worker;
+    DateTime? iosExpiry;
     if (Platform.isAndroid) {
       setup = await _service.androidSetupStatus();
       worker = await _service.nativeWorkerStatus();
@@ -67,13 +70,27 @@ class _SideloadUpdatesSettingsScreenState
           message: 'Finish setup once so Finamp can update itself',
         );
       }
+    } else if (Platform.isIOS) {
+      iosExpiry = await IosSigningExpiry.readProvisioningExpiration();
     }
     if (!mounted) return;
     setState(() {
       _packageInfo = info;
       _androidSetup = setup;
       _workerStatus = worker;
+      _iosSigningExpiresAt = iosExpiry;
     });
+  }
+
+  String? _iosSigningExpiresLine(AppLocalizations l10n) {
+    final expiry = _iosSigningExpiresAt;
+    if (expiry == null) return null;
+    final localeName = Localizations.localeOf(context).toString();
+    return IosSigningExpiry.formatExpiryLine(
+      expiry,
+      localeName: localeName,
+      localize: l10n.sideloadIosSigningExpires,
+    );
   }
 
   Future<void> _checkNow({bool install = true}) async {
@@ -229,6 +246,13 @@ class _SideloadUpdatesSettingsScreenState
                   l10n.sideloadIosNoSilentInstall,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
+                if (_iosSigningExpiresLine(l10n) case final expiryLine?) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    expiryLine,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   l10n.sideloadIosHowToSteps,
@@ -430,6 +454,11 @@ class _SideloadUpdatesSettingsScreenState
           ],
           if (Platform.isIOS) ...[
             const Divider(),
+            if (_iosSigningExpiresLine(l10n) case final expiryLine?)
+              ListTile(
+                leading: const Icon(Icons.timer_outlined),
+                title: Text(expiryLine),
+              ),
             ListTile(
               title: Text(l10n.sideloadIosInstallPaths),
               subtitle: Text(

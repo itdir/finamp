@@ -3937,6 +3937,20 @@
   "sideloadLastWorkerRun": "Last automatic check",
   "sideloadIosInstallPaths": "How to install updates on iPhone",
   "sideloadIosNoSilentInstall": "This personal build can’t install updates by itself. Use a Mac with USB (recommended below).",
+  "sideloadIosSigningExpires": "Signing expires on {date} at {time}.",
+  "@sideloadIosSigningExpires": {
+    "description": "iOS-only personal-team provisioning expiry from embedded.mobileprovision",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Sep 14, 2026"
+      },
+      "time": {
+        "type": "String",
+        "example": "3:22 PM"
+      }
+    }
+  },
   "sideloadIosHowToSteps": "1. Plug this iPhone into your Mac with a cable\n2. On the Mac, open Terminal in the Finamp project folder\n3. Run: ./scripts/install-ios-profile.sh\n4. When it finishes, open Finamp from the home screen\n\nThat upgrades in place and keeps your Trust setting. SideStore is optional and only for people who already use it — Finamp does not install or configure SideStore.",
   "sideloadUpdateAvailableTitle": "Update available",
   "sideloadCopyUsbInstallCommand": "Copy Mac install command",

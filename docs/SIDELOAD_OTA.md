@@ -133,7 +133,11 @@ Only if you already use SideStore. Publish must include a real
 button appears only then — it is not a setup guide for SideStore itself.
 
 Weekly / 7-day personal cert refresh is still required; version OTA does not
-refresh code signing.
+refresh code signing. **Settings → Updates** (iOS) shows
+`Signing expires on [date] at [time].` when it can read
+`ExpirationDate` from the installed `embedded.mobileprovision` — refresh via
+USB/`./scripts/install-ios-profile.sh` or SideStore **before** that datetime.
+See [IOS_SIDELOAD_DEBUG.md](IOS_SIDELOAD_DEBUG.md) § Trust developer.
 
 Bluetooth / car skip buttons use iOS `MPRemoteCommandCenter` on the **phone**
 Flutter isolate. A second headless engine must not register `audio_service`

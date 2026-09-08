@@ -112,6 +112,11 @@ in-place (`./scripts/install-ios-profile.sh`). Re-trust is expected if:
 Optional: keep a tiny second Xcode app on the phone signed with `F3E25E64U6`
 so uninstalling Finamp does not wipe the profile.
 
+**Signing expiry in-app:** Profile/development builds expose
+`embedded.mobileprovision` → `ExpirationDate`. Settings → Updates shows
+`Signing expires on [date] at [time].` (iOS only) so you can reinstall before
+the personal-team window ends. See [SIDELOAD_OTA.md](SIDELOAD_OTA.md) § iOS.
+
 Free personal teams cannot permanently “accept this Apple ID forever” with no
 app installed. TestFlight / App Store (paid Apple Developer Program) never
 show Untrusted Developer.
