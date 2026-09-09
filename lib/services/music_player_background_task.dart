@@ -28,6 +28,7 @@ import 'package:rxdart/rxdart.dart';
 import 'android_auto_helper.dart';
 import 'finamp_settings_helper.dart';
 import 'ios_helpers.dart';
+import 'tsnet_media_proxy.dart';
 import 'metadata_provider.dart';
 
 enum FadeDirection { fadeIn, fadeOut, none }
@@ -1405,7 +1406,7 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
       builtPath.addAll(["Items", mediaItem.extras!["itemJson"]["Id"] as String, "File"]);
     }
 
-    return Uri(
+    final direct = Uri(
       host: parsedBaseUrl.host,
       port: parsedBaseUrl.port,
       scheme: parsedBaseUrl.scheme,
@@ -1413,6 +1414,9 @@ class MusicPlayerBackgroundTask extends BaseAudioHandler with SeekHandler, Queue
       pathSegments: builtPath,
       queryParameters: queryParameters,
     );
+    // just_audio uses the OS HTTP stack; MagicDNS needs the localhost → tsnet
+    // reverse proxy (see TsnetMediaProxy / docs/EMBEDDED_TAILSCALE.md).
+    return TsnetMediaProxy.instance.rewriteIfNeeded(direct);
   }
 
   @override

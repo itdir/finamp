@@ -22,6 +22,7 @@ import '../screens/downloads_screen.dart';
 import 'finamp_settings_helper.dart';
 import 'finamp_user_helper.dart';
 import 'jellyfin_api_helper.dart';
+import 'tsnet_media_proxy.dart';
 
 part 'downloads_service_backend.g.dart';
 
@@ -332,37 +333,41 @@ class IsarTaskQueue implements TaskQueue {
           }
           await SchedulerBinding.instance.scheduleTask(() {
             _activeDownloads.add(task.isarId);
-            try {
-              // Base URL shouldn't be null at this point (user has to be logged in
-              // to get to the point where they can add downloads).
-              var url = switch (task.type) {
-                DownloadItemType.track =>
-                  _jellyfinApiData
-                      .getTrackDownloadUrl(item: task.baseItem!, transcodingProfile: task.fileTranscodingProfile)
-                      .toString(),
-                DownloadItemType.image =>
-                  _jellyfinApiData
-                      .getImageUrl(
-                        item: task.baseItem!,
-                        // Download original file
-                        quality: null,
-                        format: null,
-                      )
-                      .toString(),
-                _ => throw StateError("Invalid enqueue ${task.name} which is a ${task.type}"),
-              };
-              _enqueueLog.fine("Submitting download ${task.name} to background_downloader.");
-              var downloadTask = DownloadTask(
-                taskId: task.isarId.toString(),
-                url: url,
-                displayName: task.name,
-                baseDirectory: task.fileDownloadLocation!.baseDirectory.baseDirectory,
-                retries: 3,
-                directory: path_helper.dirname(task.path!),
-                headers: {"Authorization": _finampUserHelper.authorizationHeader},
-                filename: path_helper.basename(task.path!),
-              );
-              return Future.sync(() async {
+            return Future(() async {
+              try {
+                // Base URL shouldn't be null at this point (user has to be logged in
+                // to get to the point where they can add downloads).
+                var url = switch (task.type) {
+                  DownloadItemType.track =>
+                    _jellyfinApiData
+                        .getTrackDownloadUrl(item: task.baseItem!, transcodingProfile: task.fileTranscodingProfile)
+                        .toString(),
+                  DownloadItemType.image =>
+                    _jellyfinApiData
+                        .getImageUrl(
+                          item: task.baseItem!,
+                          // Download original file
+                          quality: null,
+                          format: null,
+                        )
+                        .toString(),
+                  _ => throw StateError("Invalid enqueue ${task.name} which is a ${task.type}"),
+                };
+                // background_downloader uses the OS HTTP stack; MagicDNS needs the
+                // same localhost → tsnet proxy as just_audio.
+                final proxied = await TsnetMediaProxy.instance.rewriteIfNeeded(Uri.parse(url));
+                url = proxied.toString();
+                _enqueueLog.fine("Submitting download ${task.name} to background_downloader.");
+                var downloadTask = DownloadTask(
+                  taskId: task.isarId.toString(),
+                  url: url,
+                  displayName: task.name,
+                  baseDirectory: task.fileDownloadLocation!.baseDirectory.baseDirectory,
+                  retries: 3,
+                  directory: path_helper.dirname(task.path!),
+                  headers: {"Authorization": _finampUserHelper.authorizationHeader},
+                  filename: path_helper.basename(task.path!),
+                );
                 //bool success = await FileDownloader().resume(downloadTask);
                 //if (!success) {
                 bool success = await FileDownloader().enqueue(downloadTask);
@@ -372,13 +377,13 @@ class IsarTaskQueue implements TaskQueue {
                   // the stuck download.
                   _enqueueLog.severe("Task ${task.name} failed to enqueue with background_downloader.");
                 }
-              });
-            } catch (e) {
-              _enqueueLog.severe("Error creating download task for ${task.name}: $e.", e);
-              _isar.writeTxnSync(() {
-                _downloadsService.updateItemState(task, DownloadItemState.failed);
-              });
-            }
+              } catch (e) {
+                _enqueueLog.severe("Error creating download task for ${task.name}: $e.", e);
+                _isar.writeTxnSync(() {
+                  _downloadsService.updateItemState(task, DownloadItemState.failed);
+                });
+              }
+            });
             // Set priority high to prevent stalling
           }, Priority.animation + 50);
           // This helps prevent choking the method channel, see MemoryTaskQueue
