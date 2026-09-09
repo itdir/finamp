@@ -38,17 +38,14 @@ MagicDNS / `100.x`), those calls stay on the **main isolate** so they use
 `FinampHttpClient`. Otherwise you can pass Network Test while albums fail to
 load.
 
-**Media streaming (`just_audio`):** the native player uses the OS HTTP stack,
-which cannot reach MagicDNS. When Embedded Tailscale is enabled and the track
-URL is a tailnet host (`*.ts.net` or `100.x`), Finamp rewrites it through a
-**localhost reverse proxy** ([`TsnetMediaProxy`](../lib/services/tsnet_media_proxy.dart))
-that fetches upstream via `FinampHttpClient`. Prefer Local / LAN URLs are left
-unchanged (OS can reach them directly). HLS playlists that embed absolute
-tailnet origins are rewritten to the proxy origin.
-
-**Still not routed through tsnet:** `background_downloader` file downloads.
-Prefer LAN for large downloads, or download while on a network that can reach
-the server without MagicDNS-only OS access. Downloaded tracks still play offline.
+**Media streaming & downloads:** the native player (`just_audio`) and
+`background_downloader` use the OS HTTP stack, which cannot reach MagicDNS.
+When Embedded Tailscale is enabled and the URL is a tailnet host (`*.ts.net` or
+`100.x`), Finamp rewrites it through a **localhost reverse proxy**
+([`TsnetMediaProxy`](../lib/services/tsnet_media_proxy.dart)) that fetches
+upstream via `FinampHttpClient`. Prefer Local / LAN URLs are left unchanged.
+HLS playlists that embed absolute tailnet origins are rewritten to the proxy
+origin. Cover art already uses `FinampHttpClient` when MagicDNS is required.
 
 When the toggle is on, app launch calls `EmbeddedTailscaleService.up()` which
 resumes persisted credentials (falling back to the stored auth key only if
@@ -116,9 +113,8 @@ flutter run
   `useEmbeddedTailscale` is `@HiveField(154)`; legacy plaintext
   `musicFinderServerUrl` was `@HiveField(155)` and is cleared after migration
   into secure storage. Music Finder HTTP uses `FinampHttpClient` (tsnet).
-- Audio streaming over MagicDNS uses `TsnetMediaProxy` (localhost → tsnet).
-  Downloads via `background_downloader` are still OS-stack and may fail on
-  MagicDNS-only paths.
+- Audio streaming and `background_downloader` over MagicDNS use `TsnetMediaProxy`
+  (localhost → tsnet). Cover-art cache already uses `FinampHttpClient` when needed.
 - Not proposed to upstream until device-tested and package:tailscale reviewed
   for key storage.
 

@@ -10,12 +10,13 @@ import 'package:meta/meta.dart';
 import 'embedded_tailscale_service.dart';
 import 'finamp_http_client.dart';
 
-/// Localhost reverse proxy so `just_audio` (OS HTTP stack) can stream Jellyfin
-/// media from MagicDNS / Tailscale CGNAT hosts via [FinampHttpClient] / tsnet.
+/// Localhost reverse proxy so OS HTTP stacks (`just_audio`,
+/// `background_downloader`) can fetch Jellyfin media from MagicDNS / Tailscale
+/// CGNAT hosts via [FinampHttpClient] / tsnet.
 ///
 /// Without this, API calls succeed through Embedded Tailscale while playback
-/// fails with host-unreachable errors (`-1004` / `-1008` on iOS) because the
-/// native player never joins the userspace tailnet.
+/// and downloads fail with host-unreachable errors (e.g. `-1004` / `-1008` on
+/// iOS) because native networking never joins the userspace tailnet.
 class TsnetMediaProxy {
   TsnetMediaProxy._();
 
